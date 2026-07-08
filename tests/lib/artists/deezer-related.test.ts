@@ -19,4 +19,18 @@ describe("deezer related", () => {
     mockFetch((u) => u.includes("/artist/27/related") ? { data: [{ id: 1, name: "Justice" }, { id: 2, name: "Cassius" }] } : {});
     expect(await deezerRelatedNames(27)).toEqual(["Justice", "Cassius"]);
   });
+  it("returns [] when related data is absent (miss)", async () => {
+    mockFetch(() => ({}));
+    expect(await deezerRelatedNames(27)).toEqual([]);
+  });
+  it("degrades to null on a Deezer error-envelope response (quota)", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockFetch(() => ({ error: { code: 4, message: "Quota limit exceeded" } }));
+    expect(await deezerResolveArtistId("Daft Punk")).toBeNull();
+  });
+  it("degrades to [] on a Deezer error-envelope response for related", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockFetch(() => ({ error: { code: 4, message: "Quota limit exceeded" } }));
+    expect(await deezerRelatedNames(27)).toEqual([]);
+  });
 });
