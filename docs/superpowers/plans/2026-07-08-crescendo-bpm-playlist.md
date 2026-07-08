@@ -2484,3 +2484,594 @@ git commit -m "chore: verify full suite + build green"
 - **Spec coverage:** auth (Phase 6), 4 pool sources (Phase 7.2 `resolvePool`), merge/dedupe (Phase 5), enrichment cache→Deezer→GetSongBPM (Phase 3), linear ramp by duration (Phase 1), widen-then-nearest (Phase 1.2), save private playlist (Phase 7.3), history only when persistent (Phase 7.3 `save`), pluggable store w/ graceful degrade (Phase 2), attribution footer (Phase 8.1), Deploy button + README (Phase 9). Deferred items (curve editor, easing, key matching, manual override) are intentionally absent.
 - **Deferred/nice-to-have:** a generation-history UI is not built (history is written but only re-surfaced via KV inspection); add a `/history` view later if wanted.
 - **Type consistency:** `Store`, `BpmCacheEntry`, `CurveTrack`, `SpotifyTrack`, `TrackRef`, `Sources`, `Curve`, `GenerateResult` are defined once and reused across tasks.
+
+---
+
+# SEED-CENTRIC PLAN REVISION (supersedes Tasks 5.1, 7.2, 7.3, 8.1, 8.2)
+
+> This revision reflects the seed-track redesign in the spec. Tasks 0.1–4.1 are
+> unchanged and DONE. Task 6.1 (auth) and 7.1 (session helper) below are still
+> valid as originally written. The pool/route/UI tasks are replaced by the
+> phases here. Same conventions: TDD, `@/`→`src/`, `npx vitest run <path>`,
+> Conventional Commits.
+
+## Phase S1: Extend Spotify client (artists + top-tracks + top-artists)
+
+### Task S1.1: Add `searchArtists`, `getArtistTopTracks`, `getTopArtists`
+
+**Files:** Modify `src/lib/spotify/client.ts`, `src/lib/spotify/types.ts`; Test `tests/lib/spotify/client-artists.test.ts`
+
+- [ ] **Step 1: Failing test** — `tests/lib/spotify/client-artists.test.ts`
+```typescript
+import { describe, it, expect, vi } from "vitest";
+import { SpotifyClient } from "@/lib/spotify/client";
+
+function jsonFetch(body: unknown) {
+  return vi.fn(async () => ({ ok: true, status: 200, headers: { get: () => null }, json: async () => body }));
+}
+
+describe("SpotifyClient artist methods", () => {
+  it("searchArtists returns id+name from the artists.items shape", async () => {
+    const f = jsonFetch({ artists: { items: [{ id: "art1", name: "Boards of Canada" }] } });
+    const c = new SpotifyClient("t", f as never);
+    expect(await c.searchArtists("boards of canada")).toEqual([{ id: "art1", name: "Boards of Canada" }]);
+  });
+  it("getArtistTopTracks normalizes tracks (with market param)", async () => {
+    const f = jsonFetch({ tracks: [{ id: "1", name: "S", duration_ms: 1000, artists: [{ name: "A" }], external_ids: { isrc: "X" } }] });
+    const c = new SpotifyClient("t", f as never);
+    const out = await c.getArtistTopTracks("art1");
+    expect(out).toEqual([{ id: "1", title: "S", artist: "A", durationMs: 1000, isrc: "X" }]);
+    expect(String((f.mock.calls[0] as unknown[])[0])).toContain("market=");
+  });
+  it("getTopArtists returns names across pages", async () => {
+    const f = jsonFetch({ items: [{ id: "a1", name: "Aphex Twin" }], next: null });
+    const c = new SpotifyClient("t", f as never);
+    expect(await c.getTopArtists()).toEqual([{ id: "a1", name: "Aphex Twin" }]);
+  });
+});
+```
+
+- [ ] **Step 2: Run red** — `npx vitest run tests/lib/spotify/client-artists.test.ts` → FAIL.
+
+- [ ] **Step 3: Add `ArtistRef` to `src/lib/spotify/types.ts`**
+```typescript
+export interface ArtistRef {
+  id: string;
+  name: string;
+}
+```
+
+- [ ] **Step 4: Add methods to `SpotifyClient`** (in `src/lib/spotify/client.ts`), reusing the existing `req`/`normalize`:
+```typescript
+  async searchArtists(name: string, limit = 5): Promise<ArtistRef[]> {
+    const url = `${API}/search?type=artist&limit=${limit}&q=${encodeURIComponent(name)}`;
+    const r = await this.req<{ artists: { items: Array<{ id: string; name: string }> } }>(url);
+    return r.artists.items.filter((a) => a?.id).map((a) => ({ id: a.id, name: a.name }));
+  }
+
+  getArtistTopTracks(artistId: string, market = "US"): Promise<SpotifyTrack[]> {
+    return this.req<{ tracks: RawTrack[] }>(`${API}/artists/${artistId}/top-tracks?market=${market}`)
+      .then((r) => r.tracks.filter((t) => t?.id).map(normalize));
+  }
+
+  async getTopArtists(range: "short_term" | "medium_term" | "long_term" = "medium_term"): Promise<ArtistRef[]> {
+    const out: ArtistRef[] = [];
+    let url: string | null = `${API}/me/top/artists?limit=50&time_range=${range}`;
+    while (url) {
+      const page: { items: Array<{ id: string; name: string }>; next: string | null } =
+        await this.req<{ items: Array<{ id: string; name: string }>; next: string | null }>(url);
+      for (const a of page.items) if (a?.id) out.push({ id: a.id, name: a.name });
+      url = page.next;
+    }
+    return out;
+  }
+```
+Import `ArtistRef` in the type import line. (`user-top-read` scope already covers top artists.)
+
+- [ ] **Step 5: Run green** — `npx vitest run tests/lib/spotify` (all spotify tests). Then `npx tsc --noEmit`.
+- [ ] **Step 6: Commit** — `feat(spotify): artist search, artist top-tracks, top-artists`
+
+## Phase S2: Curve extension — pinned seed + familiarity preference
+
+### Task S2.1: `pinnedFirst` and `preferScore` in `fillCurve`
+
+**Files:** Modify `src/lib/curve/types.ts`, `src/lib/curve/fill.ts`; Test append `tests/lib/curve/fill.test.ts`
+
+- [ ] **Step 1: Add failing tests** (append to `tests/lib/curve/fill.test.ts`):
+```typescript
+describe("fillCurve seed + familiarity", () => {
+  const t = (id: string, bpm: number, min: number) => ({ id, bpm, durationMs: min * 60_000 });
+
+  it("places pinnedFirst as track #1 and consumes its duration", () => {
+    const seed = t("seed", 100, 1);
+    const res = fillCurve({ tracks: [t("a", 114, 1)], startBpm: 100, endBpm: 128, targetMinutes: 2, pinnedFirst: seed });
+    expect(res.tracks[0].track.id).toBe("seed");
+    expect(res.tracks.map((x) => x.track.id)).toEqual(["seed", "a"]);
+  });
+
+  it("does not re-select the pinned track later", () => {
+    const seed = t("seed", 100, 1);
+    const res = fillCurve({ tracks: [seed, t("b", 100, 1)], startBpm: 100, endBpm: 100, targetMinutes: 3, pinnedFirst: seed });
+    const ids = res.tracks.map((x) => x.track.id);
+    expect(ids.filter((i) => i === "seed")).toHaveLength(1);
+  });
+
+  it("prefers higher preferScore among tracks within tolerance", () => {
+    // both within +/-3 of target 100; familiar 'fam' should win over 'other' despite equal distance
+    const res = fillCurve({
+      tracks: [t("other", 101, 1), t("fam", 101, 1)],
+      startBpm: 100, endBpm: 100, targetMinutes: 1,
+      preferScore: (tr) => (tr.id === "fam" ? 1 : 0),
+    });
+    expect(res.tracks[0].track.id).toBe("fam");
+  });
+
+  it("preference does NOT override BPM proximity outside tolerance", () => {
+    // 'fam' is far (outside tol 3); 'near' is on target. near must win.
+    const res = fillCurve({
+      tracks: [t("near", 100, 1), t("fam", 130, 1)],
+      startBpm: 100, endBpm: 100, targetMinutes: 1, tolerance: 3,
+      preferScore: (tr) => (tr.id === "fam" ? 100 : 0),
+    });
+    expect(res.tracks[0].track.id).toBe("near");
+  });
+});
+```
+
+- [ ] **Step 2: Run red** — the new suite fails (options unsupported / behavior absent).
+
+- [ ] **Step 3: Extend `CurveInput` in `types.ts`**
+```typescript
+export interface CurveInput {
+  tracks: CurveTrack[];
+  startBpm: number;
+  endBpm: number;
+  targetMinutes: number;
+  tolerance?: number;
+  pinnedFirst?: CurveTrack;
+  preferScore?: (track: CurveTrack) => number;
+}
+```
+
+- [ ] **Step 4: Update `fill.ts`.** Replace `nearestUnused` selection with two-tier logic and handle the pinned seed. Concretely:
+  - Add a helper that, given `target` and `tol`, returns the best in-tolerance track by `(preferScore desc, deviation asc, id asc)`, or null:
+```typescript
+function bestInTolerance(
+  tracks: CurveTrack[], used: Set<string>, target: number, tol: number,
+  prefer: (t: CurveTrack) => number,
+): CurveTrack | null {
+  let best: CurveTrack | null = null;
+  let bestPref = -Infinity, bestDev = Infinity;
+  for (const tr of tracks) {
+    if (used.has(tr.id)) continue;
+    const dev = Math.abs(tr.bpm - target);
+    if (!(dev <= tol)) continue; // excludes NaN
+    const pref = prefer(tr);
+    if (pref > bestPref || (pref === bestPref && dev < bestDev) ||
+        (pref === bestPref && dev === bestDev && best !== null && tr.id < best.id)) {
+      best = tr; bestPref = pref; bestDev = dev;
+    }
+  }
+  return best;
+}
+```
+  - Keep `nearestUnused` (global nearest) for the stretch fallback but make it prefer higher `preferScore` on ties.
+  - In `fillCurve`: read `pinnedFirst` and `prefer = input.preferScore ?? (() => 0)`. If `pinnedFirst` is set, push it first (`{track: pinnedFirst, target: startBpm, deviation: |pinnedFirst.bpm - startBpm|}`), add its id to `used`, and set `elapsed = pinnedFirst.durationMs`. The pinned track must NOT be re-selected (it's in `used`; also ensure it isn't double-counted if it also appears in `tracks`). Then the main loop uses `bestInTolerance(...)` first; if null, fall back to global nearest. `widenedCount` increments when the chosen track's `deviation > baseTol`.
+  - Preserve all existing behavior when `pinnedFirst`/`preferScore` are omitted (existing 15 curve tests must still pass — verify).
+
+- [ ] **Step 5: Run green** — `npx vitest run tests/lib/curve/fill.test.ts` (existing + 4 new). Then `npx tsc --noEmit`.
+- [ ] **Step 6: Commit** — `feat(curve): pinned seed track and familiarity-preference selection`
+
+## Phase S3: Last.fm optional similar-artist client
+
+### Task S3.1: `lib/lastfm`
+
+**Files:** Create `src/lib/lastfm/client.ts`; Test `tests/lib/lastfm/client.test.ts`
+
+- [ ] **Step 1: Failing test**
+```typescript
+import { describe, it, expect, vi, afterEach } from "vitest";
+import { lastfmSimilar } from "@/lib/lastfm/client";
+
+afterEach(() => { vi.unstubAllGlobals(); delete process.env.LASTFM_API_KEY; });
+
+describe("lastfmSimilar", () => {
+  it("returns [] with no API key (no fetch)", async () => {
+    const f = vi.fn();
+    vi.stubGlobal("fetch", f);
+    expect(await lastfmSimilar("Radiohead")).toEqual([]);
+    expect(f).not.toHaveBeenCalled();
+  });
+  it("returns similar artist names when key is set", async () => {
+    process.env.LASTFM_API_KEY = "k";
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ similarartists: { artist: [{ name: "Thom Yorke" }, { name: "Atoms for Peace" }] } }) })));
+    expect(await lastfmSimilar("Radiohead")).toEqual(["Thom Yorke", "Atoms for Peace"]);
+  });
+  it("returns [] on error / malformed", async () => {
+    process.env.LASTFM_API_KEY = "k";
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, json: async () => ({}) })));
+    expect(await lastfmSimilar("X")).toEqual([]);
+  });
+});
+```
+
+- [ ] **Step 2: Run red.**
+- [ ] **Step 3: Create `src/lib/lastfm/client.ts`**
+```typescript
+const BASE = "https://ws.audioscrobbler.com/2.0/";
+
+export async function lastfmSimilar(artistName: string, limit = 20): Promise<string[]> {
+  const key = process.env.LASTFM_API_KEY;
+  if (!key) return [];
+  const url = `${BASE}?method=artist.getsimilar&artist=${encodeURIComponent(artistName)}&api_key=${key}&format=json&limit=${limit}`;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return [];
+    const json = (await res.json()) as { similarartists?: { artist?: Array<{ name?: string }> } };
+    return (json.similarartists?.artist ?? []).map((a) => a.name).filter((n): n is string => !!n);
+  } catch {
+    return [];
+  }
+}
+```
+
+- [ ] **Step 4: Run green + tsc.**
+- [ ] **Step 5: Commit** — `feat(lastfm): optional similar-artist client (no-op without key)`
+
+## Phase S4: Artist-graph module (Deezer related + union)
+
+### Task S4.1: Deezer related-artists client + `buildGraph`
+
+**Files:** Create `src/lib/artists/deezer-related.ts`, `src/lib/artists/graph.ts`, `src/lib/artists/types.ts`; Tests `tests/lib/artists/deezer-related.test.ts`, `tests/lib/artists/graph.test.ts`
+
+- [ ] **Step 1: Failing test for the Deezer related client** — `tests/lib/artists/deezer-related.test.ts`
+```typescript
+import { describe, it, expect, vi, afterEach } from "vitest";
+import { deezerResolveArtistId, deezerRelatedNames } from "@/lib/artists/deezer-related";
+
+afterEach(() => vi.unstubAllGlobals());
+function mockFetch(handler: (url: string) => unknown) {
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => ({ ok: true, json: async () => handler(String(url)) })));
+}
+
+describe("deezer related", () => {
+  it("resolves an artist id by name (first search hit)", async () => {
+    mockFetch((u) => u.includes("/search/artist") ? { data: [{ id: 27, name: "Daft Punk" }] } : {});
+    expect(await deezerResolveArtistId("Daft Punk")).toBe(27);
+  });
+  it("returns null when no artist found", async () => {
+    mockFetch(() => ({ data: [] }));
+    expect(await deezerResolveArtistId("Nobody")).toBeNull();
+  });
+  it("returns related artist names", async () => {
+    mockFetch((u) => u.includes("/artist/27/related") ? { data: [{ id: 1, name: "Justice" }, { id: 2, name: "Cassius" }] } : {});
+    expect(await deezerRelatedNames(27)).toEqual(["Justice", "Cassius"]);
+  });
+});
+```
+
+- [ ] **Step 2: Run red.**
+- [ ] **Step 3: Create `src/lib/artists/types.ts`**
+```typescript
+export interface ArtistNode {
+  name: string;
+  spotifyId?: string;
+}
+```
+
+- [ ] **Step 4: Create `src/lib/artists/deezer-related.ts`** (reuse `fetchJson` from `@/lib/bpm/http` for the ok-guard):
+```typescript
+import { fetchJson } from "@/lib/bpm/http";
+
+const BASE = "https://api.deezer.com";
+
+export async function deezerResolveArtistId(name: string): Promise<number | null> {
+  const r = await fetchJson<{ data?: Array<{ id: number; name: string }> }>(`${BASE}/search/artist?q=${encodeURIComponent(name)}`);
+  return r?.data?.[0]?.id ?? null;
+}
+
+export async function deezerRelatedNames(artistId: number): Promise<string[]> {
+  const r = await fetchJson<{ data?: Array<{ id: number; name: string }> }>(`${BASE}/artist/${artistId}/related`);
+  return (r?.data ?? []).map((a) => a.name).filter(Boolean);
+}
+```
+(Confirm `fetchJson` signature from Task 3.4's `src/lib/bpm/http.ts`; if it throws on Deezer `error` envelopes via the inspector, pass no inspector here so related-artist misses just yield null/empty.)
+
+- [ ] **Step 5: Failing test for `buildGraph`** — `tests/lib/artists/graph.test.ts`
+```typescript
+import { describe, it, expect } from "vitest";
+import { buildGraph } from "@/lib/artists/graph";
+
+describe("buildGraph", () => {
+  it("expands 1 hop from the seed artist and includes the seed", async () => {
+    const deps = {
+      resolveId: async (n: string) => (n === "Seed" ? 10 : n === "B" ? 11 : 12),
+      related: async (id: number) => (id === 10 ? ["B", "C"] : []),
+      lastfm: async () => [],
+    };
+    const g = await buildGraph("Seed", { hops: 1, deps });
+    expect(g.map((n) => n.name).sort()).toEqual(["B", "C", "Seed"]);
+  });
+  it("unions last.fm names when provided, de-duplicated case-insensitively", async () => {
+    const deps = {
+      resolveId: async () => 10,
+      related: async () => ["B"],
+      lastfm: async () => ["b", "D"], // 'b' dupes 'B'
+    };
+    const g = await buildGraph("Seed", { hops: 1, deps });
+    expect(g.map((n) => n.name).sort()).toEqual(["B", "D", "Seed"]);
+  });
+  it("expands to 2 hops when requested", async () => {
+    const deps = {
+      resolveId: async (n: string) => ({ Seed: 10, B: 11 } as Record<string, number>)[n] ?? 99,
+      related: async (id: number) => (id === 10 ? ["B"] : id === 11 ? ["E"] : []),
+      lastfm: async () => [],
+    };
+    const g = await buildGraph("Seed", { hops: 2, deps });
+    expect(g.map((n) => n.name).sort()).toEqual(["B", "E", "Seed"]);
+  });
+});
+```
+
+- [ ] **Step 6: Create `src/lib/artists/graph.ts`**
+```typescript
+import type { ArtistNode } from "./types";
+import { deezerResolveArtistId, deezerRelatedNames } from "./deezer-related";
+import { lastfmSimilar } from "@/lib/lastfm/client";
+
+export interface GraphDeps {
+  resolveId: (name: string) => Promise<number | null>;
+  related: (id: number) => Promise<string[]>;
+  lastfm: (name: string) => Promise<string[]>;
+}
+
+const defaultDeps: GraphDeps = {
+  resolveId: deezerResolveArtistId,
+  related: deezerRelatedNames,
+  lastfm: lastfmSimilar,
+};
+
+export async function buildGraph(
+  seedArtist: string,
+  opts: { hops: number; deps?: GraphDeps },
+): Promise<ArtistNode[]> {
+  const deps = opts.deps ?? defaultDeps;
+  const seen = new Map<string, string>(); // lowercased -> display name
+  const add = (name: string) => { const k = name.toLowerCase(); if (!seen.has(k)) seen.set(k, name); };
+  add(seedArtist);
+
+  let frontier = [seedArtist];
+  for (let hop = 0; hop < opts.hops; hop++) {
+    const next: string[] = [];
+    for (const name of frontier) {
+      const id = await deps.resolveId(name);
+      const related = id ? await deps.related(id) : [];
+      const similar = await deps.lastfm(name);
+      for (const n of [...related, ...similar]) {
+        const k = n.toLowerCase();
+        if (!seen.has(k)) { add(n); next.push(n); }
+      }
+    }
+    frontier = next;
+    if (frontier.length === 0) break;
+  }
+  return [...seen.values()].map((name) => ({ name }));
+}
+```
+
+- [ ] **Step 7: Run green (both test files) + tsc.**
+- [ ] **Step 8: Commit** — `feat(artists): Deezer related-artists client and seed graph builder`
+
+## Phase S5: Seed pool builder
+
+### Task S5.1: `dedupeTracks` (kept from original Task 5.1)
+
+**Files:** Create `src/lib/pool/dedupe.ts`; Test `tests/lib/pool/dedupe.test.ts` — IMPLEMENT EXACTLY as original Task 5.1 in the plan above (dedupe by id then ISRC). Commit `feat(pool): dedupe candidates by id and ISRC`.
+
+### Task S5.2: `buildSeedPool`
+
+**Files:** Create `src/lib/pool/seed-pool.ts`, `src/lib/pool/familiarity.ts`; Test `tests/lib/pool/seed-pool.test.ts`
+
+- [ ] **Step 1: Failing test** (uses injected deps; no network)
+```typescript
+import { describe, it, expect, vi } from "vitest";
+import { buildSeedPool } from "@/lib/pool/seed-pool";
+import type { SpotifyTrack } from "@/lib/spotify/types";
+
+const tk = (id: string, artist: string): SpotifyTrack => ({ id, title: id, artist, durationMs: 60000, isrc: `I_${id}` });
+
+describe("buildSeedPool", () => {
+  it("gathers Spotify top-tracks for each graph artist, dedupes, and marks familiarity", async () => {
+    const deps = {
+      buildGraph: async () => [{ name: "SeedArt" }, { name: "SimA" }, { name: "SimB" }],
+      searchArtists: async (n: string) => [{ id: `sp_${n}`, name: n }],
+      artistTopTracks: async (id: string) => [tk(`${id}_1`, id.replace("sp_", ""))],
+      familiarArtists: async () => new Set(["sima"]), // lowercased
+    };
+    const out = await buildSeedPool(
+      { seedArtist: "SeedArt", hops: 1, lastfmKey: undefined },
+      deps as never,
+    );
+    // one track per artist (3 artists), each id unique
+    expect(out.candidates.map((c) => c.id).sort()).toEqual(["sp_SeedArt_1", "sp_SimA_1", "sp_SimB_1"]);
+    // familiarity set is lowercased artist names present in the user's top artists
+    expect(out.familiar.has("sima")).toBe(true);
+  });
+});
+```
+
+- [ ] **Step 2: Run red.**
+- [ ] **Step 3: Create `src/lib/pool/familiarity.ts`**
+```typescript
+import type { ArtistRef } from "../spotify/types";
+
+/** Lowercased set of artist names the user is familiar with (top artists). */
+export function familiaritySet(topArtists: ArtistRef[]): Set<string> {
+  return new Set(topArtists.map((a) => a.name.toLowerCase()));
+}
+```
+
+- [ ] **Step 4: Create `src/lib/pool/seed-pool.ts`**
+```typescript
+import type { SpotifyTrack } from "../spotify/types";
+import type { ArtistNode } from "../artists/types";
+import { dedupeTracks } from "./dedupe";
+
+export interface SeedPoolDeps {
+  buildGraph: (seedArtist: string, hops: number) => Promise<ArtistNode[]>;
+  searchArtists: (name: string) => Promise<Array<{ id: string; name: string }>>;
+  artistTopTracks: (spotifyArtistId: string) => Promise<SpotifyTrack[]>;
+  familiarArtists: () => Promise<Set<string>>;
+}
+
+export interface SeedPoolResult {
+  candidates: SpotifyTrack[];
+  familiar: Set<string>;
+}
+
+export async function buildSeedPool(
+  input: { seedArtist: string; hops: number; lastfmKey?: string },
+  deps: SeedPoolDeps,
+): Promise<SeedPoolResult> {
+  const graph = await deps.buildGraph(input.seedArtist, input.hops);
+  const familiar = await deps.familiarArtists();
+
+  const all: SpotifyTrack[] = [];
+  for (const node of graph) {
+    // resolve graph artist name -> Spotify artist (prefer exact name match, else first hit)
+    const hits = await deps.searchArtists(node.name);
+    if (hits.length === 0) continue;
+    const exact = hits.find((h) => h.name.toLowerCase() === node.name.toLowerCase()) ?? hits[0];
+    const tracks = await deps.artistTopTracks(exact.id);
+    all.push(...tracks);
+  }
+  return { candidates: dedupeTracks(all), familiar };
+}
+```
+(Note: the seed's own Spotify artist id is known exactly from the seed track; the route will pass the seed artist name into the graph and let `searchArtists` resolve it — acceptable for MVP. Genre/BPM filtering happens in the route/generate step, not here.)
+
+- [ ] **Step 5: Run green + tsc.**
+- [ ] **Step 6: Commit** — `feat(pool): seed-graph pool builder with familiarity set`
+
+## Phase S6: Auth + session (unchanged)
+
+- [ ] Implement **Task 6.1** exactly as written in the original plan above (Auth.js Spotify provider + `refreshSpotifyToken` + `.env.example`). ADD `LASTFM_API_KEY=` (optional) to `.env.example`. Commit as specified.
+- [ ] Implement **Task 7.1** exactly as written (session token helper). Commit as specified.
+
+## Phase S7: API routes (seed flow)
+
+### Task S7.1: `/api/seed/search`
+**Files:** Create `src/app/api/seed/search/route.ts`
+```typescript
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { auth } from "@/lib/auth/config";
+import { tokenFromSession } from "@/lib/spotify/session";
+import { SpotifyClient } from "@/lib/spotify/client";
+
+export const maxDuration = 30;
+const Body = z.object({ q: z.string().min(1) });
+
+export async function POST(req: Request) {
+  try {
+    const session = await auth();
+    const token = tokenFromSession(session as never);
+    const { q } = Body.parse(await req.json());
+    const tracks = await new SpotifyClient(token).searchTracks(q, 10);
+    return NextResponse.json({ tracks });
+  } catch (e) {
+    return NextResponse.json({ error: (e as Error).message }, { status: 400 });
+  }
+}
+```
+Commit: `feat(api): seed track search route`.
+
+### Task S7.2: `/api/enrich` (chunked) — implement as original Task 7.2's enrich route
+**Files:** Create `src/app/api/enrich/route.ts` — EXACTLY the enrich route from original Task 7.2 (auth gate, zod body of ≤50 `{id,title,artist,isrc?}`, `getStore()`, `enrichTracks`). Commit `feat(api): chunked enrich route`.
+
+### Task S7.3: `/api/seed/pool`
+**Files:** Create `src/app/api/seed/pool/route.ts`
+```typescript
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { auth } from "@/lib/auth/config";
+import { tokenFromSession } from "@/lib/spotify/session";
+import { SpotifyClient } from "@/lib/spotify/client";
+import { buildSeedPool } from "@/lib/pool/seed-pool";
+import { buildGraph } from "@/lib/artists/graph";
+import { familiaritySet } from "@/lib/pool/familiarity";
+
+export const maxDuration = 60;
+const Body = z.object({ seedArtist: z.string().min(1), hops: z.number().min(1).max(2).default(1) });
+
+export async function POST(req: Request) {
+  try {
+    const session = await auth();
+    const token = tokenFromSession(session as never);
+    const { seedArtist, hops } = Body.parse(await req.json());
+    const client = new SpotifyClient(token);
+    const result = await buildSeedPool({ seedArtist, hops }, {
+      buildGraph: (name, h) => buildGraph(name, { hops: h }),
+      searchArtists: (n) => client.searchArtists(n),
+      artistTopTracks: (id) => client.getArtistTopTracks(id),
+      familiarArtists: async () => familiaritySet(await client.getTopArtists()),
+    });
+    return NextResponse.json({
+      candidates: result.candidates.map((t) => ({ id: t.id, title: t.title, artist: t.artist, isrc: t.isrc })),
+      familiar: [...result.familiar],
+    });
+  } catch (e) {
+    return NextResponse.json({ error: (e as Error).message }, { status: 400 });
+  }
+}
+```
+Commit: `feat(api): seed-graph pool route`.
+
+### Task S7.4: `/api/generate` (seed-based fill) and `/api/save`
+**Files:** Create `src/app/api/generate/route.ts`, `src/app/api/save/route.ts`, and add `toCurveTracks` to `src/lib/pool/seed-pool.ts` (or a small `src/lib/pool/curve-map.ts`).
+
+- [ ] Add + TDD `toCurveTracks(tracks, bpmById)` exactly as original Task 7.3 (keeps only tracks with a cached BPM entry, maps `{id,bpm,durationMs}`). Test `tests/lib/pool/curve-map.test.ts`.
+- [ ] `/api/generate` POST body: `{ seedId, seedArtist, seedTitle, seedIsrc?, candidateIds: string[], startBpm, endBpm, targetMinutes, familiar: string[], genre?: string }`. Logic:
+  1. auth + token.
+  2. `getStore()`; `getManyBpm([seedId, ...candidateIds])`.
+  3. Build seed `CurveTrack` from the seed's cached BPM + its Spotify duration (the route re-fetches the seed track's duration via `client` OR the client passes `seedDurationMs` in the body — pass `seedDurationMs` in the body to avoid an extra call).
+  4. `candidates = toCurveTracks(candidateTracksWithDuration, bpmById)` — the body must include candidate `{id,durationMs}` (pass them from the pool step; the pool route should also return `durationMs`). **PLAN FIX:** update `/api/seed/pool` to also return `durationMs` per candidate, and the client keeps it.
+  5. **BPM hard-filter:** drop candidates whose bpm is outside `[min(startBpm,endBpm)-margin, max+margin]` (margin = 15).
+  6. `preferScore = (t) => familiarSet.has(byId[t.id].artist.toLowerCase()) ? 1 : 0`.
+  7. `fillCurve({ tracks: filtered, startBpm, endBpm, targetMinutes, pinnedFirst: seedCurveTrack, preferScore })`.
+  8. Return ordered tracks (seed #1) with title/artist/bpm/target/deviation, `achievedMinutes`, `poolSize`, `matchedSize`, `fidelity`. If `fillCurve` couldn't reach the duration and `hops` was 1, include `{ suggestWiden: true }` so the client can re-run pool with hops=2.
+- [ ] `/api/save` — implement EXACTLY as original Task 7.3's save route (create private playlist, addTracks in order, persist generation if `store.persistent`). Ensure the seed is first in `trackIds`.
+- [ ] Commit: `feat(api): seed-based generate (pinned seed + familiarity) and save`.
+
+> NOTE for implementer: because the seed defines `startBpm` and is pinned first,
+> the client obtains the seed's BPM by including the seed in the first `/api/enrich`
+> chunk (so its BPM is cached), reads it back, and prefills the start-BPM control.
+
+## Phase S8: UI (seed flow, minimal styling)
+
+### Task S8.1: Login gate + shell (as original Task 8.1)
+Implement original Task 8.1 (LoginGate + authenticated shell + attribution footer). The footer keeps the GetSongBPM backlink. Commit `feat(ui): login gate and shell`.
+
+### Task S8.2: Seed Studio
+**Files:** Create `src/components/SeedSearch.tsx`, `src/components/CurveControls.tsx` (as original), `src/components/EnrichProgress.tsx` (as original), `src/components/ResultsView.tsx` (adapted: seed row badged "SEED · #1"), `src/components/SeedStudio.tsx`.
+
+`SeedStudio` orchestration (client):
+1. **Seed search:** debounced `POST /api/seed/search` → list; user picks one → store `{ id, title, artist, isrc, durationMs }` (durationMs comes from the search result — ensure `searchTracks` result carries it; `SpotifyTrack` already has `durationMs`, so include it in the `/api/seed/search` response).
+2. **Prime seed BPM:** `POST /api/enrich` with just the seed → read `matched[0].bpm` → prefill `startBpm`. Show seed with its BPM.
+3. **Curve controls:** start (prefilled, editable), end, minutes. Optional genre text field.
+4. **Generate:** `POST /api/seed/pool {seedArtist, hops:1}` → candidate refs (with durationMs) → chunked `POST /api/enrich` (50 at a time, progress bar) → `POST /api/generate {seed..., candidateIds+durations, curve, familiar}`. If response has `suggestWiden`, automatically re-run `/api/seed/pool` with `hops:2` once and regenerate.
+5. **Results:** seed as row #1 (badge), then filled tracks; fidelity note ("curve stretched on N tracks"); Save button → `POST /api/save` → open-in-Spotify link.
+
+Provide complete, compiling `.tsx` for each component following the patterns in the original Task 8.2 code (same Tailwind classes, same fetch/error/busy state handling), adapted to the seed flow. Build must pass: `npx next build`.
+Commit: `feat(ui): seed studio (search, pick, curve, generate, results)`.
+
+## Phase S9: Docs + final gate (as original Phase 9, plus)
+- README: document the seed flow, and add `LASTFM_API_KEY` (optional) to the env table with a note that Deezer related-artists provides the graph with zero config.
+- Keep the Deploy button, Spotify dashboard steps, seed-cache docs.
+- Final: `npm test` (all green), `npx next build` (clean), documented manual E2E (login → search seed → pick → generate → save → verify seed is track #1 and BPM ascends).
+- Then Phase: final full-implementation code review + finishing-a-development-branch.
+
+## Self-Review (seed revision)
+- **Spec coverage:** seed pick (S7.1/S8.2), seed BPM→start + pinned #1 (S2.1, S7.4), Deezer graph 1-hop-widen-2 (S4.1, S7.4 suggestWiden), optional Last.fm union (S3.1, S4.1), hybrid Spotify-tracks+Deezer-BPM (S1.1, S7.3, existing bpm), BPM hard-filter + genre filter (S7.4), familiarity ranking not pool source (S5.2, S2.1), save seed-first (S7.4). VFD deferred (noted).
+- **Type consistency:** `ArtistRef`, `ArtistNode`, `SpotifyTrack`, `CurveTrack`, `CurveInput` (extended), `SeedPoolDeps/Result`, `BpmCacheEntry` reused across tasks.
+- **Deferred:** manual BPM override, full VFD aesthetic, 2-hop-always.
