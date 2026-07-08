@@ -3,6 +3,7 @@ export function normalize(s: string): string {
     .toLowerCase()
     .replace(/\((remastered|remaster|feat\.?|featuring)[^)]*\)/g, "")
     .replace(/-\s*(remastered|remaster|feat\.?|featuring).*/g, "")
+    .replace(/\s+(feat\.?|featuring)\s+.*/g, "")
     .replace(/[^\p{L}\p{N}\s]/gu, "")
     .replace(/\s+/g, " ")
     .trim();
@@ -10,6 +11,8 @@ export function normalize(s: string): string {
 
 // Dice coefficient on character bigrams: 0..1, order-insensitive, cheap.
 function dice(a: string, b: string): number {
+  // Empty normalized input carries no signal — never treat "" ≈ "" as a match.
+  if (a.length === 0 || b.length === 0) return 0;
   if (a === b) return 1;
   if (a.length < 2 || b.length < 2) return 0;
   const bigrams = (s: string) => {

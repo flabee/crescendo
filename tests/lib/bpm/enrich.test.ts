@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { enrichTracks } from "@/lib/bpm/enrich";
 import { MemoryStore } from "@/lib/store/memory-store";
 import type { TrackRef } from "@/lib/bpm/types";
@@ -11,6 +11,8 @@ const refs: TrackRef[] = [
 ];
 
 describe("enrichTracks", () => {
+  afterEach(() => vi.restoreAllMocks());
+
   it("returns cache hits without calling sources, and persists new results", async () => {
     const store = new MemoryStore([
       { trackId: "cached", bpm: 111, source: "deezer-isrc", matchedTitle: "C", matchedArtist: "A", confidence: 1, fetchedAt: "x" },
@@ -35,6 +37,7 @@ describe("enrichTracks", () => {
   });
 
   it("continues to gsb when deezer throws", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
     const store = new MemoryStore();
     const ref: TrackRef = { id: "t1", title: "T", artist: "A" };
     const deezer = vi.fn(async () => {
@@ -54,7 +57,54 @@ describe("enrichTracks", () => {
     expect((await store.getBpm("t1"))?.bpm).toBe(140);
   });
 
+  it("rejects a below-threshold deezer result: track unmatched and not cached", async () => {
+    const store = new MemoryStore();
+    const ref: TrackRef = { id: "low", title: "L", artist: "A" };
+    const deezer = vi.fn(async () => ({
+      bpm: 120,
+      source: "deezer-search" as const,
+      matchedTitle: "Wrong",
+      matchedArtist: "A",
+      confidence: 0.3,
+    }));
+    const gsb = vi.fn(async () => null);
+
+    const out = await enrichTracks([ref], store, { deezer, gsb, now: () => "2026-07-08T00:00:00Z" });
+
+    expect(out.matched).toEqual([]);
+    expect(out.unmatched).toEqual(["low"]);
+    // below-threshold match must NOT be persisted (cache-first would make it permanent)
+    expect(await store.getBpm("low")).toBeNull();
+  });
+
+  it("falls through to gsb when the deezer result is below threshold", async () => {
+    const store = new MemoryStore();
+    const ref: TrackRef = { id: "t1", title: "T", artist: "A" };
+    const deezer = vi.fn(async () => ({
+      bpm: 120,
+      source: "deezer-search" as const,
+      matchedTitle: "Wrong",
+      matchedArtist: "A",
+      confidence: 0.3,
+    }));
+    const gsb = vi.fn(async () => ({
+      bpm: 150,
+      source: "getsongbpm" as const,
+      matchedTitle: "T",
+      matchedArtist: "A",
+      confidence: 0.9,
+    }));
+
+    const out = await enrichTracks([ref], store, { deezer, gsb, now: () => "2026-07-08T00:00:00Z" });
+
+    expect(gsb).toHaveBeenCalledWith(expect.objectContaining({ id: "t1" }));
+    expect(out.matched.map((m) => m.trackId)).toEqual(["t1"]);
+    expect(out.matched[0]).toMatchObject({ bpm: 150, source: "getsongbpm" });
+    expect((await store.getBpm("t1"))?.bpm).toBe(150);
+  });
+
   it("marks track unmatched when both sources throw, without affecting other tracks", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const store = new MemoryStore();
     const failRef: TrackRef = { id: "fail", title: "F", artist: "A" };
     const okRef: TrackRef = { id: "ok", title: "O", artist: "A" };
@@ -75,5 +125,7 @@ describe("enrichTracks", () => {
     // ok track persisted, fail track not
     expect((await store.getBpm("ok"))?.bpm).toBe(155);
     expect(await store.getBpm("fail")).toBeNull();
+    // failures are logged for observability (not swallowed silently)
+    expect(warn).toHaveBeenCalled();
   });
 });

@@ -15,17 +15,31 @@ export interface EnrichOutput {
 }
 
 /**
- * Run a source lookup defensively: a thrown error (network failure, timeout,
- * bad response) is treated as "no result" (null) so one track's failure never
- * aborts the batch.
+ * Minimum match confidence required to accept + cache a result. ISRC matches
+ * carry confidence 1 so they always pass; only fuzzy deezer-search / getsongbpm
+ * matches can be rejected. Because cache-first makes matches permanent, a weak
+ * low-confidence match must never be persisted.
+ */
+export const MIN_CONFIDENCE = 0.5;
+
+/**
+ * Run a source lookup defensively:
+ * - A thrown error (network failure, timeout, quota error) is logged and treated
+ *   as "no result" (null) so one track's failure never aborts the batch.
+ * - A result below MIN_CONFIDENCE is rejected (treated as no result) so the
+ *   caller falls through to the next source and never caches a weak match.
  */
 async function tryLookup(
   fn: (ref: TrackRef) => Promise<BpmLookupResult | null>,
   ref: TrackRef,
+  label: string,
 ): Promise<BpmLookupResult | null> {
   try {
-    return await fn(ref);
-  } catch {
+    const result = await fn(ref);
+    if (result && result.confidence < MIN_CONFIDENCE) return null;
+    return result;
+  } catch (err) {
+    console.warn(`[enrich] ${label} lookup failed for track "${ref.id}":`, err);
     return null;
   }
 }
@@ -48,8 +62,9 @@ export async function enrichTracks(
       matched.push(cached[ref.id]);
       continue;
     }
-    // Deezer first; if it yields no result (null OR throws), fall through to gsb.
-    const result = (await tryLookup(deezer, ref)) ?? (await tryLookup(gsb, ref));
+    // Deezer first; if it yields no result (null, throws, or below-threshold),
+    // fall through to gsb.
+    const result = (await tryLookup(deezer, ref, "deezer")) ?? (await tryLookup(gsb, ref, "getsongbpm"));
     if (!result) {
       unmatched.push(ref.id);
       continue;
