@@ -3,6 +3,7 @@ import type { ArtistNode } from "../artists/types";
 import { dedupeTracks } from "./dedupe";
 
 export interface SeedPoolDeps {
+  /** Thin adapter over the real `buildGraph(seedArtist, {hops})` — the generate route wraps it, so this `(seedArtist, hops)` shape is intentional, not a mismatch. */
   buildGraph: (seedArtist: string, hops: number) => Promise<ArtistNode[]>;
   searchArtists: (name: string) => Promise<Array<{ id: string; name: string }>>;
   artistTopTracks: (spotifyArtistId: string) => Promise<SpotifyTrack[]>;
@@ -26,7 +27,7 @@ export async function buildSeedPool(
     try {
       const hits = await deps.searchArtists(node.name);
       if (hits.length === 0) continue;
-      const exact = hits.find((h) => h.name.toLowerCase() === node.name.toLowerCase()) ?? hits[0];
+      const exact = hits.find((h) => h.name.trim().toLowerCase() === node.name.trim().toLowerCase()) ?? hits[0];
       const tracks = await deps.artistTopTracks(exact.id);
       all.push(...tracks);
     } catch (e) {
