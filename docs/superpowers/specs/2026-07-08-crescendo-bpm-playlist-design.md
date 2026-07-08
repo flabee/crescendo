@@ -1,7 +1,7 @@
 # Crescendo — BPM-Curve Playlist Generator: Design
 
 **Date:** 2026-07-08
-**Status:** Approved design, ready for implementation planning
+**Status:** Approved design. **See the "Seed-Centric Redesign" section at the end — it supersedes the pool-building, curve-selection, and UI portions of the original design below.** The foundation (curve engine, store/cache, BPM enrichment, Spotify client, save flow) is unchanged.
 
 ## Summary
 
@@ -230,3 +230,111 @@ title+artist (scored on string similarity).
   not used (deprecated for new apps). Pool building relies on library / top /
   playlists / search only. `duration_ms` and `external_ids.isrc` on track
   objects remain available and are used.
+
+---
+
+# Seed-Centric Redesign (supersedes pool-building, curve-selection, and UI above)
+
+**Origin:** Crescendo exists because Spotify Radio from a seed song goes stale
+and incoherent. Crescendo keeps the seed but adds *direction* — a tuned tempo
+curve built outward from a track the user chooses.
+
+## What changes vs. what stays
+
+**Stays (built and reviewed):** the curve engine (`lib/curve`), pluggable store +
+cache (`lib/store`), BPM enrichment (`lib/bpm`: Deezer ISRC→search, GetSongBPM
+fallback, confidence gating, cache-first), and the Spotify Web API client
+(`lib/spotify`). Save-to-private-playlist flow is unchanged.
+
+**Superseded:** the multi-source pool (liked/top/playlists/genre picker) and
+`resolvePool`. Pool building is now seed-graph-centric. `dedupeTracks` is reused
+to collapse the candidate set.
+
+## Core flow
+
+1. **Seed pick.** User searches Spotify (`/search?type=track`) and picks a seed
+   track. We take its Spotify artist (id + name) and `external_ids.isrc`.
+2. **Seed BPM → curve start.** Enrich the seed via Deezer-by-ISRC. Its BPM
+   auto-fills `startBpm` (user-editable). The seed is **pinned as track #1**.
+3. **Artist graph (Deezer, keyless).** Resolve the seed artist on Deezer (search
+   by name; ISRC→Deezer-track→artist as a cross-check), then expand
+   `GET /artist/{id}/related`. **1 hop by default; widen to 2 hops only if the
+   pool can't fill the curve.** If `LASTFM_API_KEY` is set, union the graph with
+   Last.fm `artist.getSimilar` for a wider net (optional enrichment, no degraded
+   fallback needed without it). Spotify's own related-artists endpoint is
+   deprecated for new apps — that is why the graph comes from Deezer.
+4. **Candidate tracks (hybrid).** For each graph artist: resolve to a Spotify
+   artist (`/search?type=artist`), pull `/artists/{id}/top-tracks` (saveable
+   Spotify tracks with `external_ids.isrc`). BPM comes from our existing
+   pipeline: Deezer ISRC (exact, using the ISRC Spotify already returns) →
+   Deezer title+artist search → GetSongBPM → else unmatched. Cache by Spotify
+   track id. Collapse duplicates with `dedupeTracks`.
+5. **Filter.** Hard-filter candidates to the curve's BPM range. Genre, if the
+   user set one, is an additional hard filter on the graph/candidates.
+6. **Fill (seed pinned, familiarity-ranked).** `fillCurve` places the seed first,
+   then walks the ramp. Within a slot's base tolerance it prefers **familiar**
+   artists — artists present in the user's liked songs / top artists — then
+   nearest BPM. The user's library is a **ranking signal only, never a pool
+   source.** If the graph pool can't fill the curve: first widen to 2 hops; then,
+   only if still short, allow library tracks whose artists are adjacent to the
+   graph — never a raw BPM-only library injection.
+7. **Save.** Seed-first ordered track list → private Spotify playlist (unchanged).
+
+## Curve engine change (`lib/curve`)
+
+`fillCurve` gains two optional inputs:
+- `pinnedFirst?: CurveTrack` — always placed as result slot #1 (the seed),
+  consuming its duration before the ramp walk; excluded from later selection.
+- `preferScore?: (track: CurveTrack) => number` — familiarity weight (default
+  `() => 0`).
+
+Selection becomes two-tier:
+- **Within base tolerance** of the target: choose the candidate maximizing
+  `(preferScore, −deviation)`; ties broken by lowest id.
+- **If none within tolerance:** fall back to the globally nearest unused track
+  (the "stretch" path), `preferScore` as secondary, counting toward
+  `widenedCount`.
+
+This re-introduces tolerance into *selection* — now for a real reason (ranking
+the in-tolerance set by familiarity), unlike the decorative widening ladder that
+was removed earlier. All existing curve behavior is preserved when `pinnedFirst`
+and `preferScore` are omitted.
+
+## New / rewritten modules
+
+- **`lib/artists/`** — artist-graph builder. `deezerRelated(artistId, hops)` over
+  Deezer related-artists; optional `lastfmSimilar(name)`; a `buildGraph(seed,
+  {hops, lastfmKey?})` that returns a de-duplicated artist set (name + best-effort
+  Spotify/Deezer ids).
+- **`lib/lastfm/`** — optional `artist.getSimilar` client; no-op returning `[]`
+  when `LASTFM_API_KEY` is unset.
+- **`lib/pool/` (rewritten)** — `buildSeedPool(seed, curve, deps)`: graph →
+  Spotify top-tracks per artist → enrich → BPM-range filter → familiarity
+  annotation → dedupe. Returns candidates + a `familiar: Set<artist>` for the
+  curve's `preferScore`. Keeps `dedupeTracks`.
+
+## Env additions
+
+- `LASTFM_API_KEY` (optional) — widens the similar-artist graph. Documented in
+  `.env.example` and README as optional. Deezer related-artists keeps the graph
+  working with zero config.
+
+## UI (minimal styling for now)
+
+Seed search box → results list → pick. Selected seed shown with its BPM marking
+the curve's start. Curve controls (start prefilled from seed BPM, end, duration).
+Generate → results list with the seed as track #1, BPM per track, fidelity note.
+Save. The full **VFD / retro-tuner aesthetic** (marquee "tuned station", BPM on a
+dial) is explicitly deferred to a later design pass — MVP ships functional, plain
+styling.
+
+## Known risks (additions)
+
+- **Artist-name resolution across services.** Deezer graph gives names; matching
+  them back to Spotify artists by search can mis-resolve for ambiguous names.
+  Mitigate by preferring exact name matches and the seed artist's own Spotify id
+  (known exactly from the seed track).
+- **Graph API volume.** 1-hop keeps calls bounded; 2-hop widening can multiply
+  artist lookups. Cache-first BPM and bounded hops mitigate; log when widening.
+- **Deezer related-artists** is undocumented/keyless — treat failures as an empty
+  similar set (seed artist alone still yields a pool via its own top tracks).
