@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth/config";
-import { tokenFromSession } from "@/lib/spotify/session";
+import { tokenFromSession, type SessionLike } from "@/lib/spotify/session";
 import { getStore } from "@/lib/store";
 import { toCurveTracks } from "@/lib/pool/curve-map";
 import { fillCurve } from "@/lib/curve/fill";
 import type { CurveTrack } from "@/lib/curve/types";
+import { apiError } from "@/lib/api/http";
 
 export const maxDuration = 60;
 
@@ -19,16 +20,16 @@ const TrackSchema = z.object({
 
 const Body = z.object({
   seed: TrackSchema,
-  candidates: z.array(TrackSchema),
+  candidates: z.array(TrackSchema).max(500),
   startBpm: z.number().min(30).max(300),
   endBpm: z.number().min(30).max(300),
   targetMinutes: z.number().min(1).max(600),
-  familiar: z.array(z.string()),
+  familiar: z.array(z.string()).max(3000),
 });
 
 export async function POST(req: Request) {
   try {
-    tokenFromSession((await auth()) as never); // auth gate
+    tokenFromSession((await auth()) as SessionLike | null); // auth gate
     const { seed, candidates, startBpm, endBpm, targetMinutes, familiar } =
       Body.parse(await req.json());
 
@@ -93,8 +94,9 @@ export async function POST(req: Request) {
       filteredSize: filtered.length,
       fidelity: result.fidelity,
       suggestWiden: result.achievedMs < targetMinutes * 60000,
+      seedOutOfRange: seedEntry.bpm < lo || seedEntry.bpm > hi,
     });
   } catch (e) {
-    return NextResponse.json({ error: (e as Error).message }, { status: 400 });
+    return apiError(e);
   }
 }

@@ -1,15 +1,16 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth/config";
-import { tokenFromSession } from "@/lib/spotify/session";
+import { tokenFromSession, type SessionLike } from "@/lib/spotify/session";
 import { SpotifyClient } from "@/lib/spotify/client";
 import { getStore } from "@/lib/store";
+import { apiError } from "@/lib/api/http";
 
 export const maxDuration = 60;
 
 const Body = z.object({
   name: z.string().min(1).max(100),
-  trackIds: z.array(z.string()).min(1),
+  trackIds: z.array(z.string()).min(1).max(500),
   params: z.object({
     startBpm: z.number(),
     endBpm: z.number(),
@@ -25,7 +26,7 @@ const Body = z.object({
 
 export async function POST(req: Request) {
   try {
-    const token = tokenFromSession((await auth()) as never);
+    const token = tokenFromSession((await auth()) as SessionLike | null);
     const { name, trackIds, params, fidelity } = Body.parse(await req.json());
 
     const client = new SpotifyClient(token);
@@ -57,6 +58,6 @@ export async function POST(req: Request) {
       historySaved: store.persistent,
     });
   } catch (e) {
-    return NextResponse.json({ error: (e as Error).message }, { status: 400 });
+    return apiError(e);
   }
 }

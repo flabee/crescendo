@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth/config";
-import { tokenFromSession } from "@/lib/spotify/session";
+import { tokenFromSession, type SessionLike } from "@/lib/spotify/session";
 import { SpotifyClient } from "@/lib/spotify/client";
 import { buildSeedPool } from "@/lib/pool/seed-pool";
 import { buildGraph } from "@/lib/artists/graph";
 import { familiaritySet } from "@/lib/pool/familiarity";
+import { apiError } from "@/lib/api/http";
 
 export const maxDuration = 60;
 
@@ -16,7 +17,7 @@ const Body = z.object({
 
 export async function POST(req: Request) {
   try {
-    const token = tokenFromSession((await auth()) as never);
+    const token = tokenFromSession((await auth()) as SessionLike | null);
     const { seedArtist, hops } = Body.parse(await req.json());
     const client = new SpotifyClient(token);
     const result = await buildSeedPool(
@@ -39,6 +40,6 @@ export async function POST(req: Request) {
       familiar: [...result.familiar],
     });
   } catch (e) {
-    return NextResponse.json({ error: (e as Error).message }, { status: 400 });
+    return apiError(e);
   }
 }
