@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { targetBpmAt } from "@/lib/curve/fill";
-import { fillCurve } from "@/lib/curve/fill";
+import { targetBpmAt, fillCurve } from "@/lib/curve/fill";
 
 const t = (id: string, bpm: number, min: number): { id: string; bpm: number; durationMs: number } =>
   ({ id, bpm, durationMs: min * 60_000 });
@@ -69,5 +68,40 @@ describe("fillCurve", () => {
     expect(res.tracks).toEqual([]);
     expect(res.achievedMs).toBe(0);
     expect(res.fidelity.maxDeviation).toBe(0);
+  });
+
+  it("selects a mid-range stretch track and records it as widened (tolerance is a metric only)", () => {
+    // Only reachable track sits at deviation 10 from a flat 100-BPM target:
+    // outside base tolerance 3 but still selected, and counted as a stretch.
+    const tracks = [t("a", 110, 1)];
+    const res = fillCurve({ tracks, startBpm: 100, endBpm: 100, targetMinutes: 2, tolerance: 3 });
+    expect(res.tracks.map((x) => x.track.id)).toEqual(["a"]);
+    expect(res.fidelity.widenedCount).toBe(1);
+    expect(res.tracks[0].deviation).toBeCloseTo(10);
+  });
+
+  it("returns empty result when targetMinutes is 0", () => {
+    const tracks = [t("a", 100, 1), t("b", 114, 1)];
+    const res = fillCurve({ tracks, startBpm: 100, endBpm: 128, targetMinutes: 0 });
+    expect(res.tracks).toEqual([]);
+    expect(res.achievedMs).toBe(0);
+    expect(res.fidelity.maxDeviation).toBe(0);
+    expect(res.fidelity.avgDeviation).toBe(0);
+    expect(res.fidelity.widenedCount).toBe(0);
+  });
+
+  it("terminates on a zero-duration track and selects it exactly once", () => {
+    // elapsed never advances, so termination relies on the used.size guard.
+    const tracks = [t("a", 100, 0)];
+    const res = fillCurve({ tracks, startBpm: 100, endBpm: 100, targetMinutes: 10 });
+    expect(res.tracks.map((x) => x.track.id)).toEqual(["a"]);
+    expect(res.achievedMs).toBe(0);
+  });
+
+  it("never selects a NaN-bpm track when a valid track exists", () => {
+    // NaN-bpm tracks are silently skipped; the pool is pre-filtered upstream.
+    const tracks = [t("bad", NaN, 1), t("good", 100, 1)];
+    const res = fillCurve({ tracks, startBpm: 100, endBpm: 100, targetMinutes: 1 });
+    expect(res.tracks.map((x) => x.track.id)).toEqual(["good"]);
   });
 });
