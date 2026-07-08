@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { SeedSearch } from "@/components/SeedSearch";
 import { CurveControls } from "@/components/CurveControls";
 import { EnrichProgress } from "@/components/EnrichProgress";
@@ -71,6 +71,10 @@ export function SeedStudio() {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [savedUrl, setSavedUrl] = useState<string | null>(null);
+  // Accumulates BPM (Spotify trackId -> bpm) from every enrich response — the
+  // seed-prime AND every candidate chunk — so generate can carry it forward to
+  // the server, which is stateless across requests on serverless.
+  const bpmMapRef = useRef<Record<string, number>>({});
 
   const busy = phase !== "idle";
 
@@ -81,6 +85,8 @@ export function SeedStudio() {
     setSavedUrl(null);
     setError(null);
     setPhase("priming");
+    // Fresh seed → start a fresh BPM map.
+    bpmMapRef.current = {};
     try {
       const data = await postJson<{
         matched: { trackId: string; bpm: number }[];
@@ -88,6 +94,9 @@ export function SeedStudio() {
       }>("/api/enrich", {
         tracks: [{ id: track.id, title: track.title, artist: track.artist, isrc: track.isrc }],
       });
+      // Record the primed seed BPM so generate can carry it forward without
+      // relying on the shared store (stateless on serverless).
+      for (const m of data.matched) bpmMapRef.current[m.trackId] = m.bpm;
       const bpm = data.matched[0]?.bpm;
       if (typeof bpm === "number") {
         setSeedBpm(bpm);
@@ -113,16 +122,26 @@ export function SeedStudio() {
         { seedArtist: seed!.artist, hops },
       );
 
+      // Cap the pool client-side: generate accepts at most 500 candidates, and
+      // this also bounds the enrich work. A widened graph can exceed 500.
+      const candidates = pool.candidates.slice(0, 500);
+
       setPhase("enriching");
-      const chunks = chunk(pool.candidates, 50);
-      const total = pool.candidates.length;
+      const chunks = chunk(candidates, 50);
+      const total = candidates.length;
       let done = 0;
       let matched = 0;
       setProgress({ done: 0, total, matched: 0 });
       for (const c of chunks) {
-        const data = await postJson<{ matched: unknown[]; unmatched: string[] }>("/api/enrich", {
+        const data = await postJson<{
+          matched: { trackId: string; bpm: number }[];
+          unmatched: string[];
+        }>("/api/enrich", {
           tracks: c.map((x) => ({ id: x.id, title: x.title, artist: x.artist, isrc: x.isrc })),
         });
+        // Carry each matched BPM forward so generate never depends on shared
+        // server state.
+        for (const m of data.matched) bpmMapRef.current[m.trackId] = m.bpm;
         done += c.length;
         matched += data.matched.length;
         setProgress({ done, total, matched });
@@ -137,11 +156,12 @@ export function SeedStudio() {
           durationMs: seed!.durationMs,
           isrc: seed!.isrc,
         },
-        candidates: pool.candidates,
+        candidates,
         startBpm,
         endBpm,
         targetMinutes,
         familiar: pool.familiar,
+        bpm: bpmMapRef.current,
       });
     }
 

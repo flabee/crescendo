@@ -3,7 +3,6 @@ import { z } from "zod";
 import { auth } from "@/lib/auth/config";
 import { tokenFromSession, type SessionLike } from "@/lib/spotify/session";
 import { getStore } from "@/lib/store";
-import { toCurveTracks } from "@/lib/pool/curve-map";
 import { fillCurve } from "@/lib/curve/fill";
 import type { CurveTrack } from "@/lib/curve/types";
 import { apiError } from "@/lib/api/http";
@@ -25,19 +24,28 @@ const Body = z.object({
   endBpm: z.number().min(30).max(300),
   targetMinutes: z.number().min(1).max(600),
   familiar: z.array(z.string()).max(3000),
+  // Client-carried BPM map (Spotify trackId -> bpm), forwarded from the enrich
+  // responses. Lets generate work on stateless serverless where the in-memory
+  // store is NOT shared across requests. Optional: falls back to the store.
+  bpm: z.record(z.string(), z.number()).optional(),
 });
 
 export async function POST(req: Request) {
   try {
     tokenFromSession((await auth()) as SessionLike | null); // auth gate
-    const { seed, candidates, startBpm, endBpm, targetMinutes, familiar } =
-      Body.parse(await req.json());
+    const body = Body.parse(await req.json());
+    const { seed, candidates, startBpm, endBpm, targetMinutes, familiar } = body;
 
     const store = await getStore();
-    const bpmById = await store.getManyBpm([seed.id, ...candidates.map((c) => c.id)]);
+    // Merge the client-provided BPM map OVER the store so generate works even
+    // when the store is empty (serverless), and still benefits from it when
+    // shared (local/Docker or KV configured).
+    const provided = body.bpm ?? {};
+    const cached = await store.getManyBpm([seed.id, ...candidates.map((c) => c.id)]);
+    const bpmOf = (id: string): number | undefined => provided[id] ?? cached[id]?.bpm;
 
-    const seedEntry = bpmById[seed.id];
-    if (!seedEntry) {
+    const seedBpm = bpmOf(seed.id);
+    if (seedBpm === undefined) {
       return NextResponse.json(
         { error: "Could not determine seed BPM — enrich the seed first" },
         { status: 400 },
@@ -45,11 +53,13 @@ export async function POST(req: Request) {
     }
     const seedCurve: CurveTrack = {
       id: seed.id,
-      bpm: seedEntry.bpm,
+      bpm: seedBpm,
       durationMs: seed.durationMs,
     };
 
-    const candidateCurve = toCurveTracks(candidates, bpmById);
+    const candidateCurve: CurveTrack[] = candidates
+      .filter((c) => bpmOf(c.id) !== undefined)
+      .map((c) => ({ id: c.id, bpm: bpmOf(c.id)!, durationMs: c.durationMs }));
 
     // BPM hard-filter: only keep candidates within ±15 of the requested range.
     const lo = Math.min(startBpm, endBpm) - 15;
@@ -94,7 +104,7 @@ export async function POST(req: Request) {
       filteredSize: filtered.length,
       fidelity: result.fidelity,
       suggestWiden: result.achievedMs < targetMinutes * 60000,
-      seedOutOfRange: seedEntry.bpm < lo || seedEntry.bpm > hi,
+      seedOutOfRange: seedBpm < lo || seedBpm > hi,
     });
   } catch (e) {
     return apiError(e);
