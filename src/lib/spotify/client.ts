@@ -1,4 +1,4 @@
-import type { PlaylistSummary, SpotifyTrack } from "./types";
+import type { ArtistRef, PlaylistSummary, SpotifyTrack } from "./types";
 
 type FetchLike = typeof fetch;
 const API = "https://api.spotify.com/v1";
@@ -112,5 +112,28 @@ export class SpotifyClient {
       const uris = trackIds.slice(i, i + 100).map((id) => `spotify:track:${id}`);
       await this.req(`${API}/playlists/${playlistId}/tracks`, { method: "POST", body: JSON.stringify({ uris }) });
     }
+  }
+
+  async searchArtists(name: string, limit = 5): Promise<ArtistRef[]> {
+    const url = `${API}/search?type=artist&limit=${limit}&q=${encodeURIComponent(name)}`;
+    const r = await this.req<{ artists: { items: Array<{ id: string; name: string }> } }>(url);
+    return r.artists.items.filter((a) => a?.id).map((a) => ({ id: a.id, name: a.name }));
+  }
+
+  getArtistTopTracks(artistId: string, market = "US"): Promise<SpotifyTrack[]> {
+    return this.req<{ tracks: RawTrack[] }>(`${API}/artists/${artistId}/top-tracks?market=${market}`)
+      .then((r) => r.tracks.filter((t) => t?.id).map(normalize));
+  }
+
+  async getTopArtists(range: "short_term" | "medium_term" | "long_term" = "medium_term"): Promise<ArtistRef[]> {
+    const out: ArtistRef[] = [];
+    let url: string | null = `${API}/me/top/artists?limit=50&time_range=${range}`;
+    while (url) {
+      const page: { items: Array<{ id: string; name: string }>; next: string | null } =
+        await this.req<{ items: Array<{ id: string; name: string }>; next: string | null }>(url);
+      for (const a of page.items) if (a?.id) out.push({ id: a.id, name: a.name });
+      url = page.next;
+    }
+    return out;
   }
 }

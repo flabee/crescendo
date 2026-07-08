@@ -11,3 +11,8 @@ export interface PlaylistSummary {
   name: string;
   trackCount: number;
 }
+
+export interface ArtistRef {
+  id: string;
+  name: string;
+}
