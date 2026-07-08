@@ -105,3 +105,39 @@ describe("fillCurve", () => {
     expect(res.tracks.map((x) => x.track.id)).toEqual(["good"]);
   });
 });
+
+describe("fillCurve seed + familiarity", () => {
+  const t = (id: string, bpm: number, min: number) => ({ id, bpm, durationMs: min * 60_000 });
+
+  it("places pinnedFirst as track #1 and consumes its duration", () => {
+    const seed = t("seed", 100, 1);
+    const res = fillCurve({ tracks: [t("a", 114, 1)], startBpm: 100, endBpm: 128, targetMinutes: 2, pinnedFirst: seed });
+    expect(res.tracks[0].track.id).toBe("seed");
+    expect(res.tracks.map((x) => x.track.id)).toEqual(["seed", "a"]);
+  });
+
+  it("does not re-select the pinned track later", () => {
+    const seed = t("seed", 100, 1);
+    const res = fillCurve({ tracks: [seed, t("b", 100, 1)], startBpm: 100, endBpm: 100, targetMinutes: 3, pinnedFirst: seed });
+    const ids = res.tracks.map((x) => x.track.id);
+    expect(ids.filter((i) => i === "seed")).toHaveLength(1);
+  });
+
+  it("prefers higher preferScore among tracks within tolerance", () => {
+    const res = fillCurve({
+      tracks: [t("other", 101, 1), t("fam", 101, 1)],
+      startBpm: 100, endBpm: 100, targetMinutes: 1,
+      preferScore: (tr) => (tr.id === "fam" ? 1 : 0),
+    });
+    expect(res.tracks[0].track.id).toBe("fam");
+  });
+
+  it("preference does NOT override BPM proximity outside tolerance", () => {
+    const res = fillCurve({
+      tracks: [t("near", 100, 1), t("fam", 130, 1)],
+      startBpm: 100, endBpm: 100, targetMinutes: 1, tolerance: 3,
+      preferScore: (tr) => (tr.id === "fam" ? 100 : 0),
+    });
+    expect(res.tracks[0].track.id).toBe("near");
+  });
+});

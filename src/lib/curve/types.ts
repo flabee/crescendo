@@ -10,6 +10,8 @@ export interface CurveInput {
   endBpm: number;
   targetMinutes: number;
   tolerance?: number; // default 3
+  pinnedFirst?: CurveTrack;
+  preferScore?: (track: CurveTrack) => number;
 }
 
 export interface FilledTrack {
