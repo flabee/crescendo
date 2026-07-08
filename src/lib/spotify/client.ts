@@ -25,14 +25,22 @@ export class SpotifyClient {
   constructor(private token: string, private fetchImpl: FetchLike = fetch) {}
 
   private async req<T>(url: string, init?: RequestInit): Promise<T> {
-    for (let attempt = 0; attempt < 5; attempt++) {
+    const maxAttempts = 5;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
       const res = await this.fetchImpl(url, {
         ...init,
         headers: { Authorization: `Bearer ${this.token}`, "Content-Type": "application/json", ...(init?.headers ?? {}) },
       });
-      if (res.status === 429) {
-        const retry = Number(res.headers.get("retry-after") ?? "1");
-        await new Promise((r) => setTimeout(r, retry * 1000));
+      // Retry rate limits (429) and transient server errors (5xx). Other
+      // non-ok statuses (e.g. 4xx) are not retryable and throw immediately.
+      const retryable = res.status === 429 || res.status >= 500;
+      if (retryable && attempt < maxAttempts - 1) {
+        // Sanitize Retry-After: default to 1s if missing/garbage/negative,
+        // then cap at 10s so a hostile header can't hang the route.
+        const raw = Number(res.headers.get("retry-after") ?? "1");
+        const secs = Number.isFinite(raw) && raw >= 0 ? raw : 1;
+        const delayMs = Math.min(secs, 10) * 1000;
+        await new Promise((r) => setTimeout(r, delayMs));
         continue;
       }
       if (!res.ok) throw new Error(`Spotify ${res.status}: ${url}`);
@@ -68,9 +76,10 @@ export class SpotifyClient {
     return this.paginate(`${API}/playlists/${playlistId}/tracks?limit=100`, (i) => (i as { track: RawTrack | null }).track);
   }
 
-  searchTracks(query: string, limit = 50): Promise<SpotifyTrack[]> {
+  async searchTracks(query: string, limit = 50): Promise<SpotifyTrack[]> {
     const url = `${API}/search?type=track&limit=${limit}&q=${encodeURIComponent(query)}`;
-    return this.req<{ tracks: { items: RawTrack[] } }>(url).then((r) => r.tracks.items.filter((t) => t?.id).map(normalize));
+    const r = await this.req<{ tracks: { items: RawTrack[] } }>(url);
+    return r.tracks.items.filter((t) => t?.id).map(normalize);
   }
 
   async getUserPlaylists(): Promise<PlaylistSummary[]> {
