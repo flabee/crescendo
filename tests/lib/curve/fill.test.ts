@@ -140,4 +140,30 @@ describe("fillCurve seed + familiarity", () => {
     });
     expect(res.tracks[0].track.id).toBe("near");
   });
+
+  it("returns exactly [seed] with an empty pool and terminates", () => {
+    const seed = t("seed", 100, 1);
+    const res = fillCurve({ tracks: [], startBpm: 100, endBpm: 128, targetMinutes: 5, pinnedFirst: seed });
+    expect(res.tracks.map((x) => x.track.id)).toEqual(["seed"]);
+    expect(res.achievedMs).toBe(seed.durationMs);
+  });
+
+  it("returns just [seed] when the pinned duration already meets/exceeds the target", () => {
+    const seed = t("seed", 100, 3); // 3 min pinned, 2 min target
+    const res = fillCurve({ tracks: [t("a", 114, 1)], startBpm: 100, endBpm: 128, targetMinutes: 2, pinnedFirst: seed });
+    expect(res.tracks.map((x) => x.track.id)).toEqual(["seed"]);
+    expect(res.achievedMs).toBe(seed.durationMs);
+  });
+
+  it("uses preferScore as the secondary key on the stretch (global-nearest) path", () => {
+    // Both tracks sit at deviation 30 from target (outside tol 3): equal-deviation
+    // stretch, so preferScore breaks the tie in the global-nearest fallback.
+    const res = fillCurve({
+      tracks: [t("plain", 130, 1), t("fam", 130, 1)],
+      startBpm: 100, endBpm: 100, targetMinutes: 1, tolerance: 3,
+      preferScore: (tr) => (tr.id === "fam" ? 1 : 0),
+    });
+    expect(res.tracks[0].track.id).toBe("fam");
+    expect(res.fidelity.widenedCount).toBe(1);
+  });
 });

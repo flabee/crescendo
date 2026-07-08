@@ -108,6 +108,8 @@ export function fillCurve(input: CurveInput): FillResult {
   let widenedCount = 0;
 
   if (input.pinnedFirst) {
+    // The pinned seed is a user choice, not an algorithmic stretch: its deviation
+    // contributes to maxDeviation/avgDeviation but intentionally does NOT increment widenedCount.
     const pinned = input.pinnedFirst;
     result.push({
       track: pinned,
