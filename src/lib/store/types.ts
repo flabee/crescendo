@@ -24,6 +24,14 @@ export interface GenerationRecord {
   fidelity: { maxDeviation: number; avgDeviation: number; widenedCount: number };
 }
 
+/**
+ * Pluggable BPM cache + generation history store.
+ *
+ * READ-ONLY CONTRACT: Returned `BpmCacheEntry` / `GenerationRecord` objects must
+ * be treated as read-only. Callers must not mutate them — adapters may return
+ * shared references (e.g. the seed map or KV-deserialized objects) rather than
+ * defensive copies.
+ */
 export interface Store {
   getBpm(trackId: string): Promise<BpmCacheEntry | null>;
   getManyBpm(trackIds: string[]): Promise<Record<string, BpmCacheEntry>>;

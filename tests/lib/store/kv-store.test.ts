@@ -32,20 +32,25 @@ const entry = (trackId: string, bpm: number): BpmCacheEntry => ({
   trackId, bpm, source: "deezer-isrc", matchedTitle: "t", matchedArtist: "a", confidence: 1, fetchedAt: "2026-07-08T00:00:00Z",
 });
 
+// Shared Store semantics are exercised in contract.test.ts; these cover the
+// KV-specific behavior: the persistent flag and the KV-over-seed layering.
 describe("KvStore", () => {
   it("is persistent", () => {
     expect(new KvStore(fakeKv() as never, []).persistent).toBe(true);
   });
+
   it("prefers KV value over seed on read", async () => {
     const kv = fakeKv();
     const store = new KvStore(kv as never, [entry("s1", 100)]);
     await store.putBpm(entry("s1", 120));
     expect((await store.getBpm("s1"))?.bpm).toBe(120);
   });
+
   it("falls back to seed when KV misses", async () => {
     const store = new KvStore(fakeKv() as never, [entry("s1", 100)]);
     expect((await store.getBpm("s1"))?.bpm).toBe(100);
   });
+
   it("getManyBpm merges KV hits over seed", async () => {
     const kv = fakeKv();
     const store = new KvStore(kv as never, [entry("s1", 100), entry("s2", 90)]);
@@ -54,10 +59,5 @@ describe("KvStore", () => {
     expect(map.s1.bpm).toBe(100);
     expect(map.s2.bpm).toBe(95);
     expect(map.miss).toBeUndefined();
-  });
-  it("persists generations", async () => {
-    const store = new KvStore(fakeKv() as never, []);
-    await store.putGeneration({ id: "g1", createdAt: "x", params: { startBpm: 1, endBpm: 2, targetMinutes: 3, sources: [] }, trackIds: [], playlistId: "p", fidelity: { maxDeviation: 0, avgDeviation: 0, widenedCount: 0 } });
-    expect(await store.listGenerations()).toHaveLength(1);
   });
 });

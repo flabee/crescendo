@@ -10,7 +10,7 @@ export interface KvClient {
 }
 
 const BPM_KEY = (id: string) => `bpm:${id}`;
-const GEN_LIST = "generations";
+const GEN_LIST = "crescendo:generations";
 
 export class KvStore implements Store {
   readonly persistent = true;
