@@ -16,7 +16,10 @@ export const authConfig: NextAuthConfig = {
     Spotify({
       clientId: process.env.SPOTIFY_CLIENT_ID,
       clientSecret: process.env.SPOTIFY_CLIENT_SECRET,
-      authorization: { params: { scope: SCOPES } },
+      // Spotify's provider default `authorization` is a plain string URL, so an
+      // override object MUST include `url` — otherwise Auth.js builds `new URL(undefined)`
+      // and sign-in throws "Invalid URL" (error=Configuration).
+      authorization: { url: "https://accounts.spotify.com/authorize", params: { scope: SCOPES } },
     }),
   ],
   callbacks: {
