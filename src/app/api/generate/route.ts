@@ -44,13 +44,10 @@ export async function POST(req: Request) {
     const cached = await store.getManyBpm([seed.id, ...candidates.map((c) => c.id)]);
     const bpmOf = (id: string): number | undefined => provided[id] ?? cached[id]?.bpm;
 
-    const seedBpm = bpmOf(seed.id);
-    if (seedBpm === undefined) {
-      return NextResponse.json(
-        { error: "Could not determine seed BPM — enrich the seed first" },
-        { status: 400 },
-      );
-    }
+    // The seed is pinned as track #1 no matter what. If Deezer/GetSongBPM has no
+    // BPM for it, fall back to the (user-set) ramp start rather than failing —
+    // the seed still leads the set; only its own BPM readout is approximate.
+    const seedBpm = bpmOf(seed.id) ?? startBpm;
     const seedCurve: CurveTrack = {
       id: seed.id,
       bpm: seedBpm,
