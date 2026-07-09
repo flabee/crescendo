@@ -23,7 +23,7 @@ export async function POST(req: Request) {
     const result = await buildSeedPool(
       { seedArtist, hops },
       {
-        buildGraph: (name, h) => buildGraph(name, { hops: h, maxNodes: 8 }),
+        buildGraph: (name, h) => buildGraph(name, { hops: h, maxNodes: 4 }),
         artistTracks: async (name) => {
           const q = name.replace(/["\\]/g, " ").trim();
           if (!q) return [];

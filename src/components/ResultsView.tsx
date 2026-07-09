@@ -6,11 +6,13 @@ import { Player } from "@/components/Player";
 export function ResultsView({
   result,
   seed,
+  graphSize,
   onNewRun,
   busy,
 }: {
   result: GenerateResult;
   seed: SeedTrack;
+  graphSize?: number;
   onNewRun: () => void;
   busy: boolean;
 }) {
@@ -32,6 +34,26 @@ export function ResultsView({
           ↻ New
         </button>
       </div>
+
+      {/* Plain-language pool diagnostic — makes an empty/thin pool's cause
+          visible without opening DevTools. */}
+      <p className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-sm tracking-[.1em]">
+        <span className="text-[11px] uppercase tracking-[.2em] text-cyanlabel">Pool</span>
+        <span>
+          <span className="vfd glow-c text-cyan">{graphSize ?? "?"}</span>{" "}
+          <span className="text-xs text-dim">artists</span>
+        </span>
+        <span className="text-dim">·</span>
+        <span>
+          <span className="vfd glow-c text-cyan">{result.poolSize}</span>{" "}
+          <span className="text-xs text-dim">tracks</span>
+        </span>
+        <span className="text-dim">·</span>
+        <span>
+          <span className="vfd glow-c text-cyan">{result.matchedSize}</span>{" "}
+          <span className="text-xs text-dim">with BPM</span>
+        </span>
+      </p>
 
       <CurveViz
         tracks={result.tracks.map((t) => ({ id: t.id, bpm: t.bpm, target: t.target }))}

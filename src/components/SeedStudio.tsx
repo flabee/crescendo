@@ -68,6 +68,9 @@ export function SeedStudio() {
   const [phase, setPhase] = useState<Phase>("idle");
   const [progress, setProgress] = useState({ done: 0, total: 0, matched: 0 });
   const [result, setResult] = useState<GenerateResult | null>(null);
+  // Number of artist nodes the pool graph produced (diagnostic surfaced in the
+  // results panel so an empty pool's cause is visible without DevTools).
+  const [graphSize, setGraphSize] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Accumulates BPM (Spotify trackId -> bpm) from every enrich response — the
   // seed-prime AND every candidate chunk — so generate can carry it forward to
@@ -110,13 +113,17 @@ export function SeedStudio() {
     if (!seed) return;
     setError(null);
     setResult(null);
+    setGraphSize(null);
 
     async function runPool(hops: number): Promise<GenerateResult> {
       setPhase("pooling");
-      const pool = await postJson<{ candidates: Candidate[]; familiar: string[] }>(
+      const pool = await postJson<{ candidates: Candidate[]; familiar: string[]; graphSize?: number }>(
         "/api/seed/pool",
         { seedArtist: seed!.artist, hops },
       );
+      // Surface how many artist nodes the graph produced — the key diagnostic
+      // when the pool comes back empty (0 artists = no per-artist searches ran).
+      setGraphSize(pool.graphSize ?? null);
 
       // Cap the pool client-side: generate accepts at most 500 candidates, and
       // this also bounds the enrich work. A widened graph can exceed 500.
@@ -275,6 +282,7 @@ export function SeedStudio() {
         <ResultsView
           result={result}
           seed={seed}
+          graphSize={graphSize ?? undefined}
           onNewRun={handleNewRun}
           busy={busy}
         />

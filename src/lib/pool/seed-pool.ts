@@ -41,10 +41,10 @@ export async function buildSeedPool(
       // isolate a failing artist — one artist's failure must not sink the pool
       console.warn("seed-pool: skipping artist", node.name, e);
     }
-    // Pace the per-artist searches ~250ms apart (except after the last) to stay
+    // Pace the per-artist searches ~500ms apart (except after the last) to stay
     // under Spotify's burst throttle and avoid 429 spikes during a Generate.
     if (i < graph.length - 1) {
-      await new Promise((r) => setTimeout(r, 250));
+      await new Promise((r) => setTimeout(r, 500));
     }
   }
   return { candidates: dedupeTracks(all), familiar, graphSize: graph.length };
