@@ -8,12 +8,16 @@ export function ResultsView({
   onSave,
   saving,
   savedUrl,
+  onNewRun,
+  busy,
 }: {
   result: GenerateResult;
   seed: SeedTrack;
   onSave: () => void;
   saving: boolean;
   savedUrl: string | null;
+  onNewRun: () => void;
+  busy: boolean;
 }) {
   // Derive the curve endpoints from the real per-track targets so CurveViz can
   // scale its axis without changing this component's prop contract.
@@ -22,6 +26,18 @@ export function ResultsView({
 
   return (
     <section className="panel space-y-5 p-5">
+      <div className="flex items-center justify-between gap-3">
+        <div className="metric-label">Result</div>
+        <button
+          onClick={onNewRun}
+          disabled={busy}
+          className="chip !py-1.5 !text-[10px] tracking-[.2em] hover:border-[rgba(65,230,214,.5)] disabled:opacity-45"
+          style={{ color: "#41e6d6", borderColor: "rgba(65,230,214,.4)" }}
+        >
+          ↻ New
+        </button>
+      </div>
+
       <CurveViz
         tracks={result.tracks.map((t) => ({ id: t.id, bpm: t.bpm, target: t.target }))}
         startBpm={curveStart}

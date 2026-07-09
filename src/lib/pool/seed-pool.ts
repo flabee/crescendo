@@ -12,6 +12,8 @@ export interface SeedPoolDeps {
 export interface SeedPoolResult {
   candidates: SpotifyTrack[];
   familiar: Set<string>;
+  /** Number of artist nodes in the related-artist graph (diagnostic — confirms the graph populated). */
+  graphSize: number;
 }
 
 export async function buildSeedPool(
@@ -39,5 +41,5 @@ export async function buildSeedPool(
       console.warn("seed-pool: skipping artist", node.name, e);
     }
   }
-  return { candidates: dedupeTracks(all), familiar };
+  return { candidates: dedupeTracks(all), familiar, graphSize: graph.length };
 }

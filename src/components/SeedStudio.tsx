@@ -178,6 +178,15 @@ export function SeedStudio() {
     }
   }
 
+  // Clear the current result so the user can re-run (with the same or a tweaked
+  // BPM/minutes) without being stuck on the finished set. Keeps the seed and its
+  // primed BPM map intact so Generate stays immediately usable.
+  function handleNewRun() {
+    setResult(null);
+    setSavedUrl(null);
+    setError(null);
+  }
+
   async function handleSave() {
     if (!seed || !result) return;
     setSaving(true);
@@ -230,9 +239,11 @@ export function SeedStudio() {
                 setSavedUrl(null);
                 setError(null);
               }}
-              className="text-[11px] uppercase tracking-[.22em] text-dim hover:text-cyan"
+              disabled={busy}
+              className="chip !py-1.5 !text-[10px] tracking-[.2em] text-cyan hover:border-[rgba(65,230,214,.5)] disabled:opacity-45"
+              style={{ color: "#41e6d6", borderColor: "rgba(65,230,214,.4)" }}
             >
-              change
+              ◀ Change Seed
             </button>
           </div>
         </div>
@@ -292,6 +303,8 @@ export function SeedStudio() {
           onSave={handleSave}
           saving={saving}
           savedUrl={savedUrl}
+          onNewRun={handleNewRun}
+          busy={busy}
         />
       )}
     </div>

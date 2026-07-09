@@ -24,7 +24,16 @@ export async function POST(req: Request) {
       { seedArtist, hops },
       {
         buildGraph: (name, h) => buildGraph(name, { hops: h }),
-        artistTracks: (name) => client.searchTracks(`artist:"${name.replace(/["\\]/g, "")}"`, 15),
+        artistTracks: async (name) => {
+          const q = name.replace(/["\\]/g, " ").trim();
+          if (!q) return [];
+          const tracks = await client.searchTracks(q, 20);
+          const n = q.toLowerCase();
+          const onArtist = tracks.filter(
+            (t) => t.artist.toLowerCase().includes(n) || n.includes(t.artist.toLowerCase()),
+          );
+          return onArtist.length ? onArtist : tracks.slice(0, 10);
+        },
         familiarArtists: async () => familiaritySet(await client.getTopArtists()),
       },
     );
@@ -37,6 +46,7 @@ export async function POST(req: Request) {
         durationMs: t.durationMs,
       })),
       familiar: [...result.familiar],
+      graphSize: result.graphSize,
     });
   } catch (e) {
     return apiError(e);

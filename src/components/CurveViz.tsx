@@ -43,16 +43,18 @@ export function CurveViz({
               }}
             />
           ))}
-          {/* bars */}
-          <div className="absolute inset-0 flex items-end gap-[3px]">
+          {/* bars — fixed-width, left-aligned so a single track reads as one
+              slim bar (not a full-width fill); scrolls if there are many. */}
+          <div className="absolute inset-0 flex items-end justify-start gap-[3px] overflow-x-auto">
             {tracks.map((t, i) => (
               <div
                 key={`${t.id}-${i}`}
-                className="flex-1"
                 title={`${t.bpm} bpm`}
                 style={{
+                  flex: "0 1 14px",
+                  minWidth: "6px",
+                  maxWidth: "14px",
                   height: `${heightPct(t.bpm)}%`,
-                  minWidth: "3px",
                   background:
                     "repeating-linear-gradient(to top,#f6b41e 0 4px,transparent 4px 6px)",
                   boxShadow: "0 0 6px rgba(246,180,30,.35)",

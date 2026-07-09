@@ -15,6 +15,8 @@ describe("buildSeedPool", () => {
     const out = await buildSeedPool({ seedArtist: "SeedArt", hops: 1 }, deps);
     expect(out.candidates.map((c) => c.id).sort()).toEqual(["SeedArt_1", "SimA_1", "SimB_1"]);
     expect(out.familiar.has("sima")).toBe(true);
+    // graphSize reflects the number of nodes buildGraph returned.
+    expect(out.graphSize).toBe(3);
   });
 
   it("isolates a failing artist — other artists still contribute", async () => {
