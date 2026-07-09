@@ -6,6 +6,8 @@ export function SeedSearch({ onPick }: { onPick: (track: SeedTrack) => void }) {
   const [q, setQ] = useState("");
   const [results, setResults] = useState<SeedTrack[]>([]);
   const [searching, setSearching] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [searched, setSearched] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -14,9 +16,12 @@ export function SeedSearch({ onPick }: { onPick: (track: SeedTrack) => void }) {
     if (!query) {
       setResults([]);
       setSearching(false);
+      setError(null);
+      setSearched(false);
       return;
     }
     setSearching(true);
+    setError(null);
     timer.current = setTimeout(async () => {
       try {
         const res = await fetch("/api/seed/search", {
@@ -27,8 +32,10 @@ export function SeedSearch({ onPick }: { onPick: (track: SeedTrack) => void }) {
         const data = await res.json();
         if (!res.ok) throw new Error(data.error ?? res.statusText);
         setResults((data.tracks ?? []) as SeedTrack[]);
-      } catch {
+        setSearched(true);
+      } catch (e) {
         setResults([]);
+        setError(e instanceof Error ? e.message : String(e));
       } finally {
         setSearching(false);
       }
@@ -50,6 +57,16 @@ export function SeedSearch({ onPick }: { onPick: (track: SeedTrack) => void }) {
       {searching && (
         <p className="text-[11px] uppercase tracking-[.22em] text-dim">
           searching…
+        </p>
+      )}
+      {error && (
+        <p className="rounded border border-red-900 bg-red-950/50 px-3 py-2 text-[11px] uppercase tracking-[.18em] text-red-300">
+          search failed: {error}
+        </p>
+      )}
+      {!searching && !error && searched && results.length === 0 && (
+        <p className="text-[11px] uppercase tracking-[.22em] text-dim">
+          no matches
         </p>
       )}
       {results.length > 0 && (
