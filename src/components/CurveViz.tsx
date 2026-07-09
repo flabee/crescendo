@@ -43,13 +43,30 @@ export function CurveViz({
               }}
             />
           ))}
+          {/* target-shape overlay — a faint cyan dotted line of the intended
+              per-track targets, drawn BEHIND the amber bars so the chosen curve
+              shape stays visible. Same fixed-width cells as the bars keep the
+              two rows aligned. */}
+          <div className="pointer-events-none absolute inset-0 flex items-end justify-start gap-[3px]">
+            {tracks.map((t, i) => (
+              <div
+                key={`tgt-${t.id}-${i}`}
+                style={{ flex: "0 1 14px", minWidth: "6px", maxWidth: "14px", height: `${heightPct(t.target)}%` }}
+              >
+                <span
+                  className="block h-[3px] w-full rounded-full"
+                  style={{ background: "#41e6d6", boxShadow: "0 0 5px rgba(65,230,214,.5)", opacity: 0.5 }}
+                />
+              </div>
+            ))}
+          </div>
           {/* bars — fixed-width, left-aligned so a single track reads as one
               slim bar (not a full-width fill); scrolls if there are many. */}
           <div className="absolute inset-0 flex items-end justify-start gap-[3px] overflow-x-auto">
             {tracks.map((t, i) => (
               <div
                 key={`${t.id}-${i}`}
-                title={`${t.bpm} bpm`}
+                title={`${t.bpm} bpm (target ${t.target})`}
                 style={{
                   flex: "0 1 14px",
                   minWidth: "6px",

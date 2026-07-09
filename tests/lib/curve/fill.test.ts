@@ -18,6 +18,27 @@ describe("targetBpmAt", () => {
   it("supports descending ramps (wind-down)", () => {
     expect(targetBpmAt(30_000, 128, 100, targetMs)).toBe(114);
   });
+
+  it("shape:flat holds the start BPM at f=0, mid, and end", () => {
+    expect(targetBpmAt(0, 100, 128, targetMs, "flat")).toBe(100);
+    expect(targetBpmAt(30_000, 100, 128, targetMs, "flat")).toBe(100);
+    expect(targetBpmAt(targetMs, 100, 128, targetMs, "flat")).toBe(100);
+  });
+
+  it("shape:ease shares endpoints and midpoint with the linear ramp", () => {
+    expect(targetBpmAt(0, 100, 128, targetMs, "ease")).toBe(100);
+    expect(targetBpmAt(targetMs, 100, 128, targetMs, "ease")).toBe(128);
+    // ease-in-out is symmetric, so f=0.5 lands on the linear midpoint.
+    expect(targetBpmAt(30_000, 100, 128, targetMs, "ease")).toBeCloseTo(114);
+  });
+
+  it("shape:dip hits endpoints but dips below the linear midpoint", () => {
+    expect(targetBpmAt(0, 100, 128, targetMs, "dip")).toBeCloseTo(100);
+    expect(targetBpmAt(targetMs, 100, 128, targetMs, "dip")).toBeCloseTo(128);
+    const linMid = 114; // (100 + 128) / 2
+    const dipMid = targetBpmAt(30_000, 100, 128, targetMs, "dip");
+    expect(dipMid).toBeLessThan(linMid);
+  });
 });
 
 describe("fillCurve", () => {
@@ -103,6 +124,19 @@ describe("fillCurve", () => {
     const tracks = [t("bad", NaN, 1), t("good", 100, 1)];
     const res = fillCurve({ tracks, startBpm: 100, endBpm: 100, targetMinutes: 1 });
     expect(res.tracks.map((x) => x.track.id)).toEqual(["good"]);
+  });
+
+  it("shape:flat keeps every target near the start BPM (end ignored)", () => {
+    // Endpoints span 100->128, but a flat shape should hold ~100 throughout,
+    // so it favours start-bpm tracks over end-bpm ones the whole way.
+    const tracks = [t("a", 100, 1), t("b", 100, 1), t("c", 128, 1), t("d", 100, 1)];
+    const res = fillCurve({ tracks, startBpm: 100, endBpm: 128, targetMinutes: 3, shape: "flat" });
+    for (const ft of res.tracks) {
+      expect(ft.target).toBeCloseTo(100);
+    }
+    // The 128-bpm track sits far from a flat 100 target, so it is not chosen
+    // while nearer start-bpm tracks remain.
+    expect(res.tracks.map((x) => x.track.id)).toEqual(["a", "b", "d"]);
   });
 });
 

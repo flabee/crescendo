@@ -1,16 +1,24 @@
 "use client";
+import { CurvePresets, type Shape } from "@/components/CurvePresets";
 
 export function CurveControls({
   startBpm,
   endBpm,
   targetMinutes,
+  shape,
   onChange,
+  onShapeChange,
 }: {
   startBpm: number;
   endBpm: number;
   targetMinutes: number;
+  shape: Shape;
   onChange: (patch: { startBpm?: number; endBpm?: number; targetMinutes?: number }) => void;
+  onShapeChange: (s: Shape) => void;
 }) {
+  // "flat" holds the start BPM the whole way, so the End stepper has no effect.
+  // De-emphasise it (still editable) rather than hard-disabling.
+  const endIgnored = shape === "flat";
   const bump = (
     key: "startBpm" | "endBpm" | "targetMinutes",
     current: number,
@@ -22,7 +30,9 @@ export function CurveControls({
   };
 
   return (
-    <section className="grid grid-cols-3 gap-4">
+    <section className="space-y-4">
+      <CurvePresets value={shape} onChange={onShapeChange} />
+      <div className="grid grid-cols-3 gap-4">
       <div>
         <label className="metric-label mb-2 block">Start BPM</label>
         <div className="stepper">
@@ -49,8 +59,12 @@ export function CurveControls({
           </button>
         </div>
       </div>
-      <div>
-        <label className="metric-label mb-2 block">End BPM</label>
+      <div
+        className={endIgnored ? "opacity-40 transition-opacity" : "transition-opacity"}
+      >
+        <label className="metric-label mb-2 block">
+          End BPM{endIgnored && <span className="ml-1 normal-case text-dim">(ignored)</span>}
+        </label>
         <div className="stepper">
           <button
             type="button"
@@ -100,6 +114,7 @@ export function CurveControls({
             ›
           </button>
         </div>
+      </div>
       </div>
     </section>
   );

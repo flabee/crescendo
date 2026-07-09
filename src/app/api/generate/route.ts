@@ -23,6 +23,7 @@ const Body = z.object({
   startBpm: z.number().min(30).max(300),
   endBpm: z.number().min(30).max(300),
   targetMinutes: z.number().min(1).max(600),
+  shape: z.enum(["ramp", "ease", "flat", "dip"]).default("ramp"),
   familiar: z.array(z.string()).max(3000),
   // Client-carried BPM map (Spotify trackId -> bpm), forwarded from the enrich
   // responses. Lets generate work on stateless serverless where the in-memory
@@ -34,7 +35,7 @@ export async function POST(req: Request) {
   try {
     tokenFromSession((await auth()) as SessionLike | null); // auth gate
     const body = Body.parse(await req.json());
-    const { seed, candidates, startBpm, endBpm, targetMinutes, familiar } = body;
+    const { seed, candidates, startBpm, endBpm, targetMinutes, shape, familiar } = body;
 
     const store = await getStore();
     // Merge the client-provided BPM map OVER the store so generate works even
@@ -77,6 +78,7 @@ export async function POST(req: Request) {
       startBpm,
       endBpm,
       targetMinutes,
+      shape,
       pinnedFirst: seedCurve,
       preferScore,
     });

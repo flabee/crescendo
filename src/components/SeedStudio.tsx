@@ -2,6 +2,7 @@
 import { useRef, useState } from "react";
 import { SeedSearch } from "@/components/SeedSearch";
 import { CurveControls } from "@/components/CurveControls";
+import type { Shape } from "@/components/CurvePresets";
 import { ResultsView } from "@/components/ResultsView";
 
 export interface SeedTrack {
@@ -59,6 +60,7 @@ export function SeedStudio() {
   const [startBpm, setStartBpm] = useState(100);
   const [endBpm, setEndBpm] = useState(128);
   const [targetMinutes, setTargetMinutes] = useState(45);
+  const [shape, setShape] = useState<Shape>("ramp");
   const [phase, setPhase] = useState<Phase>("idle");
   const [result, setResult] = useState<GenerateResult | null>(null);
   // Number of artist nodes the pool graph produced (diagnostic surfaced in the
@@ -144,6 +146,7 @@ export function SeedStudio() {
         startBpm,
         endBpm,
         targetMinutes,
+        shape,
         familiar: pool.familiar,
         bpm: bpmMapRef.current,
       });
@@ -216,6 +219,8 @@ export function SeedStudio() {
         startBpm={startBpm}
         endBpm={endBpm}
         targetMinutes={targetMinutes}
+        shape={shape}
+        onShapeChange={setShape}
         onChange={(patch) => {
           if (patch.startBpm !== undefined) setStartBpm(patch.startBpm);
           if (patch.endBpm !== undefined) setEndBpm(patch.endBpm);

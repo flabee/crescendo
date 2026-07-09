@@ -1,14 +1,37 @@
-import type { CurveInput, CurveTrack, FillResult, FilledTrack } from "./types";
+import type { CurveInput, CurveShape, CurveTrack, FillResult, FilledTrack } from "./types";
 
 export function targetBpmAt(
   elapsedMs: number,
   startBpm: number,
   endBpm: number,
   targetMs: number,
+  shape: CurveShape = "ramp",
 ): number {
-  if (targetMs <= 0) return startBpm;
-  const frac = Math.min(elapsedMs / targetMs, 1);
-  return startBpm + (endBpm - startBpm) * frac;
+  const f = targetMs <= 0 ? 0 : Math.min(elapsedMs / targetMs, 1);
+  const delta = endBpm - startBpm;
+  switch (shape) {
+    case "flat":
+      // Hold the start BPM for the whole set; end is ignored.
+      return startBpm;
+    case "ease": {
+      // Ease-in-out (symmetric): slow at both ends, quick through the middle.
+      // f=0.5 lands exactly on the linear midpoint, so ease shares endpoints
+      // and midpoint with the ramp.
+      const p = f < 0.5 ? 2 * f * f : 1 - Math.pow(-2 * f + 2, 2) / 2;
+      return startBpm + delta * p;
+    }
+    case "dip": {
+      // Linear baseline minus a sine valley: dips below the line through the
+      // middle and returns to the exact endpoints (sin(0)=sin(pi)=0).
+      const lin = startBpm + delta * f;
+      const depth = Math.max(8, Math.abs(delta) * 0.5);
+      return lin - depth * Math.sin(Math.PI * f);
+    }
+    case "ramp":
+    default:
+      // Unchanged linear interpolation.
+      return startBpm + delta * f;
+  }
 }
 
 // Scan all unused tracks for the one with minimum deviation from `target`.
@@ -101,6 +124,7 @@ export function fillCurve(input: CurveInput): FillResult {
   const baseTol = input.tolerance ?? 3;
   const targetMs = targetMinutes * 60_000;
   const prefer = input.preferScore ?? (() => 0);
+  const shape = input.shape ?? "ramp";
 
   const used = new Set<string>();
   const result: FilledTrack[] = [];
@@ -121,7 +145,7 @@ export function fillCurve(input: CurveInput): FillResult {
   }
 
   while (elapsed < targetMs && hasUnusedPool(tracks, used)) {
-    const target = targetBpmAt(elapsed, startBpm, endBpm, targetMs);
+    const target = targetBpmAt(elapsed, startBpm, endBpm, targetMs, shape);
     const pick =
       bestInTolerance(tracks, used, target, baseTol, prefer) ??
       nearestUnused(tracks, used, target, prefer);
