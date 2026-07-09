@@ -1,4 +1,5 @@
 import { fetchJson } from "@/lib/bpm/http";
+import { deezerResolveArtistId } from "@/lib/artists/deezer-related";
 import type { SpotifyTrack } from "@/lib/spotify/types";
 
 const BASE = "https://api.deezer.com";
@@ -27,13 +28,18 @@ function throwOnDeezerError(json: unknown): void {
 }
 
 /**
- * Fetch an artist's top tracks from Deezer (keyless), carrying ISRC + BPM.
+ * Fetch an artist's tracks from Deezer (keyless), carrying ISRC + BPM.
  *
- * The `/search/track` list lacks isrc/bpm, so we resolve each hit via
- * `/track/${id}`. Tracks without an ISRC are skipped (we need it as the stable
- * id downstream). Many Deezer tracks report `bpm: 0` (unknown) — that's kept as
- * 0 (the curve step excludes them later). Per-track calls are paced ~120ms to
- * stay under Deezer's ~50/5s keyless limit. Individual failures are isolated.
+ * For coherence we resolve the artist to a Deezer artist id and pull their
+ * actual TOP tracks (`/artist/{id}/top`) — only that artist, and their most
+ * recognizable songs. A fuzzy `/search/track?q=artist:"…"` (filtered to the
+ * exact artist name) is the fallback when the artist can't be resolved.
+ *
+ * The list endpoints lack isrc/bpm, so we resolve each hit via `/track/${id}`.
+ * Tracks without an ISRC are skipped (we need it as the stable id downstream).
+ * Many Deezer tracks report `bpm: 0` (unknown) — kept as 0 (the curve step
+ * excludes them later). Per-track calls are paced ~120ms to stay under Deezer's
+ * ~50/5s keyless limit. Individual failures are isolated.
  */
 export async function deezerArtistTracks(
   artistName: string,
@@ -42,16 +48,31 @@ export async function deezerArtistTracks(
   const name = artistName.replace(/["\\]/g, " ").trim();
   if (!name) return [];
 
-  let list: DeezerSearchItem[];
+  let list: DeezerSearchItem[] = [];
   try {
-    const q = `artist:"${name}"`;
-    const search = await fetchJson<{ data?: DeezerSearchItem[] }>(
-      `${BASE}/search/track?q=${encodeURIComponent(q)}&limit=${limit}`,
-      throwOnDeezerError,
-    );
-    list = search?.data ?? [];
+    // Prefer the exact artist's top tracks (coherent, recognizable).
+    const artistId = await deezerResolveArtistId(name);
+    if (artistId) {
+      const top = await fetchJson<{ data?: DeezerSearchItem[] }>(
+        `${BASE}/artist/${artistId}/top?limit=${limit}`,
+        throwOnDeezerError,
+      );
+      list = top?.data ?? [];
+    }
+    // Fallback: fuzzy track search, filtered to the exact artist name.
+    if (list.length === 0) {
+      const q = `artist:"${name}"`;
+      const search = await fetchJson<{ data?: DeezerSearchItem[] }>(
+        `${BASE}/search/track?q=${encodeURIComponent(q)}&limit=${limit}`,
+        throwOnDeezerError,
+      );
+      const lower = name.toLowerCase();
+      list = (search?.data ?? []).filter(
+        (t) => (t.artist?.name ?? "").toLowerCase() === lower,
+      );
+    }
   } catch (err) {
-    console.warn(`deezerArtistTracks search failed for "${artistName}":`, err);
+    console.warn(`deezerArtistTracks failed for "${artistName}":`, err);
     return [];
   }
 
