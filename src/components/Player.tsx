@@ -20,7 +20,11 @@ async function fetchToken(): Promise<string> {
   return d.accessToken as string;
 }
 
-export function Player({ uris }: { uris: string[] }) {
+export function Player({
+  tracks,
+}: {
+  tracks: { title: string; artist: string; isrc?: string }[];
+}) {
   const [status, setStatus] = useState<string>("connecting");
   const [error, setError] = useState<string | null>(null);
   const [deviceId, setDeviceId] = useState<string | null>(null);
@@ -108,7 +112,35 @@ export function Player({ uris }: { uris: string[] }) {
       setPlayError("Player not ready yet.");
       return;
     }
+    // Pool tracks are ISRC-keyed, so resolve each ISRC to a real Spotify track
+    // URI server-side (paced) before playing the set as a Spotify queue — the
+    // SDK auto-advances through the URIs.
+    const isrcs = tracks.map((t) => t.isrc).filter((x): x is string => Boolean(x));
+    if (isrcs.length === 0) {
+      setPlayError("No playable tracks (missing track IDs)");
+      return;
+    }
     try {
+      setStatus("resolving…");
+      const rr = await fetch("/api/resolve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isrcs }),
+      });
+      if (!rr.ok) {
+        const body = await rr.text().catch(() => "");
+        setStatus("ready");
+        setPlayError(`Resolve failed (${rr.status})${body ? " — " + body.slice(0, 160) : ""}`);
+        return;
+      }
+      const { uris: resolved } = (await rr.json()) as { uris: (string | null)[] };
+      const uris = resolved.filter((x): x is string => Boolean(x));
+      setStatus("ready");
+      if (uris.length === 0) {
+        setPlayError("No playable tracks (missing track IDs)");
+        return;
+      }
+
       const token = await fetchToken();
       const res = await fetch(`https://api.spotify.com/v1/me/player/play?device_id=${id}`, {
         method: "PUT",
@@ -123,6 +155,7 @@ export function Player({ uris }: { uris: string[] }) {
         setPlayError(`Playback failed (${res.status})${body ? " — " + body.slice(0, 160) : ""}`);
       }
     } catch (e) {
+      setStatus("ready");
       setPlayError(e instanceof Error ? e.message : String(e));
     }
   }

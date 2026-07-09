@@ -107,7 +107,7 @@ export function ResultsView({
         ))}
       </ol>
 
-      <Player uris={result.tracks.map((t) => "spotify:track:" + t.id)} />
+      <Player tracks={result.tracks.map((t) => ({ title: t.title, artist: t.artist, isrc: t.isrc }))} />
     </section>
   );
 }

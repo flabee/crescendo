@@ -63,10 +63,10 @@ export async function POST(req: Request) {
     const hi = Math.max(startBpm, endBpm) + 15;
     const filtered = candidateCurve.filter((t) => t.bpm >= lo && t.bpm <= hi);
 
-    // id -> {title, artist} lookup (candidates + seed) for response mapping.
-    const byId = new Map<string, { title: string; artist: string }>();
-    for (const c of candidates) byId.set(c.id, { title: c.title, artist: c.artist });
-    byId.set(seed.id, { title: seed.title, artist: seed.artist });
+    // id -> {title, artist, isrc} lookup (candidates + seed) for response mapping.
+    const byId = new Map<string, { title: string; artist: string; isrc?: string }>();
+    for (const c of candidates) byId.set(c.id, { title: c.title, artist: c.artist, isrc: c.isrc });
+    byId.set(seed.id, { title: seed.title, artist: seed.artist, isrc: seed.isrc });
 
     const fam = new Set(familiar.map((s) => s.toLowerCase()));
     const preferScore = (t: CurveTrack) =>
@@ -87,6 +87,7 @@ export async function POST(req: Request) {
         id: ft.track.id,
         title: meta?.title ?? "",
         artist: meta?.artist ?? "",
+        isrc: meta?.isrc,
         bpm: ft.track.bpm,
         target: Math.round(ft.target),
         deviation: Math.round(ft.deviation),

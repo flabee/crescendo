@@ -22,7 +22,7 @@ interface Candidate {
 }
 
 export interface GenerateResult {
-  tracks: { id: string; title: string; artist: string; bpm: number; target: number; deviation: number }[];
+  tracks: { id: string; title: string; artist: string; isrc?: string; bpm: number; target: number; deviation: number }[];
   achievedMinutes: number;
   poolSize: number;
   matchedSize: number;
