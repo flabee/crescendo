@@ -36,7 +36,7 @@ After deploying, set `NEXTAUTH_URL` to your Vercel URL (e.g. `https://<your-app>
    ![Copy client credentials](docs/img/client-credentials.png)
 
 3. Add the **Redirect URIs**. You need one per environment you use:
-   - Local: `http://localhost:3000/api/auth/callback/spotify`
+   - Local: `http://127.0.0.1:3000/api/auth/callback/spotify` — **use the loopback IP `127.0.0.1`, not `localhost`**; Spotify rejects `localhost` as insecure. Browse the app at `http://127.0.0.1:3000` so the callback host matches.
    - Production: `https://<your-app>.vercel.app/api/auth/callback/spotify`
 
    ![Add redirect URIs](docs/img/redirect-uris.png)
@@ -54,7 +54,7 @@ Mirror these into `.env.local` (local) or your Vercel project settings (producti
 | `SPOTIFY_CLIENT_ID` | Required | Client ID from your Spotify developer app. |
 | `SPOTIFY_CLIENT_SECRET` | Required | Client Secret from your Spotify developer app. |
 | `AUTH_SECRET` | Required | Session encryption secret. Generate with `openssl rand -base64 32`. |
-| `NEXTAUTH_URL` | Required | Base URL of your instance. `http://localhost:3000` locally, `https://<your-app>.vercel.app` in production. Must match a configured redirect URI. |
+| `NEXTAUTH_URL` / `AUTH_URL` | Required | Base URL of your instance. `http://127.0.0.1:3000` locally (not `localhost` — see redirect URI note above), `https://<your-app>.vercel.app` in production. Must match a configured redirect URI. Set `AUTH_TRUST_HOST=true` for local/self-hosted. |
 | `GETSONGBPM_API_KEY` | Optional | Adds a BPM fallback source ([getsongbpm.com/api](https://getsongbpm.com/api)). Their terms require an attribution backlink, which is already in the app footer. |
 | `LASTFM_API_KEY` | Optional | Widens the similar-artist graph ([last.fm/api](https://www.last.fm/api)). Without it, Deezer related-artists still works with zero config. |
 | `KV_REST_API_URL` | Optional | Vercel KV / Upstash REST URL. With `KV_REST_API_TOKEN`, enables a persistent BPM cache + generation history. |
@@ -68,7 +68,7 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+Open [http://127.0.0.1:3000](http://127.0.0.1:3000) (use `127.0.0.1`, not `localhost`, to match the Spotify redirect URI).
 
 ## Warm start (optional) — seed the BPM cache
 
