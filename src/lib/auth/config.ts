@@ -25,7 +25,14 @@ export const authConfig: NextAuthConfig = {
       // Spotify's provider default `authorization` is a plain string URL, so an
       // override object MUST include `url` — otherwise Auth.js builds `new URL(undefined)`
       // and sign-in throws "Invalid URL" (error=Configuration).
-      authorization: { url: "https://accounts.spotify.com/authorize", params: { scope: SCOPES } },
+      // `show_dialog=true` forces Spotify to re-show the consent screen on every
+      // login. Without it, adding new scopes silently reissues a token WITHOUT the
+      // new scopes (Spotify skips consent for an already-authorized app), which
+      // causes 403s on newly-scoped calls like playlist creation.
+      authorization: {
+        url: "https://accounts.spotify.com/authorize",
+        params: { scope: SCOPES, show_dialog: "true" },
+      },
     }),
   ],
   callbacks: {
