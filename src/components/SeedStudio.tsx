@@ -202,30 +202,39 @@ export function SeedStudio() {
       {!seed ? (
         <SeedSearch onPick={handlePick} />
       ) : (
-        <div className="flex items-center justify-between rounded-lg border border-neutral-800 bg-neutral-900 px-4 py-3">
-          <div>
-            <p className="font-medium">{seed.title}</p>
-            <p className="text-sm text-neutral-400">
-              {seed.artist}
-              {phase === "priming"
-                ? " · reading BPM…"
-                : seedBpm !== null
-                  ? ` · ${seedBpm} bpm`
-                  : " · BPM unknown"}
-            </p>
+        <div className="panel flex items-center justify-between gap-4 p-5">
+          <div className="min-w-0">
+            <div className="metric-label mb-2 flex items-center gap-2 text-cyanlabel">
+              <span
+                className="inline-block h-2 w-2 rounded-[1px]"
+                style={{
+                  background: "#41e6d6",
+                  boxShadow: "0 0 7px rgba(65,230,214,.7)",
+                }}
+              />
+              Now Tuned
+            </div>
+            <p className="truncate text-lg text-cyanlabel">{seed.title}</p>
+            <p className="text-xs text-dim">{seed.artist}</p>
           </div>
-          <button
-            onClick={() => {
-              setSeed(null);
-              setSeedBpm(null);
-              setResult(null);
-              setSavedUrl(null);
-              setError(null);
-            }}
-            className="text-sm text-neutral-400 hover:text-white"
-          >
-            change
-          </button>
+          <div className="flex shrink-0 flex-col items-end gap-2">
+            <div className="vfd glow-c text-[40px] leading-none text-cyan">
+              {seedBpm !== null ? seedBpm : "--"}
+              <span className="ml-1 align-middle text-[13px]">BPM</span>
+            </div>
+            <button
+              onClick={() => {
+                setSeed(null);
+                setSeedBpm(null);
+                setResult(null);
+                setSavedUrl(null);
+                setError(null);
+              }}
+              className="text-[11px] uppercase tracking-[.22em] text-dim hover:text-cyan"
+            >
+              change
+            </button>
+          </div>
         </div>
       )}
 
@@ -243,8 +252,14 @@ export function SeedStudio() {
       <button
         onClick={handleGenerate}
         disabled={!seed || busy}
-        className="w-full rounded-full bg-green-500 px-6 py-3 font-semibold text-black hover:bg-green-400 disabled:opacity-50"
+        className="btn-amber flex w-full items-center justify-center gap-3 px-6 py-3.5 text-sm"
       >
+        <span className="flex items-end gap-[3px]" aria-hidden="true">
+          <span className="block w-[3px] bg-amber" style={{ height: "8px", boxShadow: "0 0 6px rgba(246,180,30,.6)" }} />
+          <span className="block w-[3px] bg-amber" style={{ height: "14px", boxShadow: "0 0 6px rgba(246,180,30,.6)" }} />
+          <span className="block w-[3px] bg-amber" style={{ height: "6px", boxShadow: "0 0 6px rgba(246,180,30,.6)" }} />
+          <span className="block w-[3px] bg-amber" style={{ height: "11px", boxShadow: "0 0 6px rgba(246,180,30,.6)" }} />
+        </span>
         {phase === "pooling"
           ? "Building pool…"
           : phase === "enriching"
@@ -259,7 +274,13 @@ export function SeedStudio() {
       )}
 
       {error && (
-        <div className="rounded-lg border border-red-900 bg-red-950/50 px-4 py-3 text-sm text-red-300">
+        <div
+          className="glow-r rounded-lg px-4 py-3 text-xs uppercase tracking-[.14em] text-red"
+          style={{
+            border: "1px solid rgba(255,58,94,.4)",
+            background: "rgba(255,58,94,.06)",
+          }}
+        >
           {error}
         </div>
       )}

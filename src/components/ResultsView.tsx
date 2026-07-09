@@ -1,5 +1,6 @@
 "use client";
 import type { GenerateResult, SeedTrack } from "@/components/SeedStudio";
+import { CurveViz } from "@/components/CurveViz";
 
 export function ResultsView({
   result,
@@ -14,44 +15,60 @@ export function ResultsView({
   saving: boolean;
   savedUrl: string | null;
 }) {
+  // Derive the curve endpoints from the real per-track targets so CurveViz can
+  // scale its axis without changing this component's prop contract.
+  const curveStart = result.tracks[0]?.target ?? 0;
+  const curveEnd = result.tracks[result.tracks.length - 1]?.target ?? 0;
+
   return (
-    <section className="space-y-4">
-      <p className="text-sm text-neutral-300">
-        {result.tracks.length} tracks · {result.achievedMinutes} min ·{" "}
-        {result.matchedSize}/{result.poolSize} pool had BPM
+    <section className="panel space-y-5 p-5">
+      <CurveViz
+        tracks={result.tracks.map((t) => ({ id: t.id, bpm: t.bpm, target: t.target }))}
+        startBpm={curveStart}
+        endBpm={curveEnd}
+      />
+
+      <p className="text-[11px] uppercase tracking-[.18em] text-dim">
+        <span className="vfd glow-c text-cyan">{result.tracks.length}</span> tracks ·{" "}
+        <span className="vfd glow-c text-cyan">{result.achievedMinutes}</span> min ·{" "}
+        <span className="vfd glow-c text-cyan">{result.matchedSize}</span>/
+        <span className="vfd glow-c text-cyan">{result.poolSize}</span> pool had BPM
       </p>
 
       {result.fidelity.widenedCount > 0 && (
-        <p className="text-xs text-neutral-500">
+        <p className="text-[11px] uppercase tracking-[.16em] text-amber glow-a">
           curve stretched on {result.fidelity.widenedCount} tracks
         </p>
       )}
 
       {result.seedOutOfRange && (
-        <p className="text-xs text-amber-400/80">
+        <p className="text-[11px] uppercase tracking-[.16em] text-amber glow-a">
           seed BPM is outside your curve range — it still leads the set as track #1
         </p>
       )}
 
-      <ol className="divide-y divide-neutral-800 overflow-hidden rounded-lg border border-neutral-800">
+      <ol className="hairline divide-y divide-[rgba(65,230,214,.1)] overflow-hidden rounded-lg">
         {result.tracks.map((t, i) => (
           <li
             key={`${t.id}-${i}`}
-            className="flex items-baseline justify-between gap-3 px-4 py-2"
+            className="flex items-baseline justify-between gap-3 px-4 py-2.5"
           >
-            <span className="flex items-baseline gap-2">
+            <span className="flex items-baseline gap-3">
+              <span className="vfd glow-c shrink-0 text-cyan">
+                {String(i + 1).padStart(2, "0")}
+              </span>
               {i === 0 && (
-                <span className="rounded bg-green-500/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-green-400">
-                  SEED · #1
+                <span className="chip on shrink-0 !px-2 !py-0.5 !text-[10px]">
+                  SEED
                 </span>
               )}
               <span>
-                {i + 1}. <span className="font-medium">{t.title}</span>{" "}
-                <span className="text-neutral-400">— {t.artist}</span>
+                <span className="text-sm font-medium text-cyanlabel">{t.title}</span>{" "}
+                <span className="text-xs text-dim">— {t.artist}</span>
               </span>
             </span>
-            <span className="shrink-0 text-sm tabular-nums text-neutral-400">
-              {t.bpm} bpm (→{t.target})
+            <span className="shrink-0 text-xs tracking-[.12em] text-dim">
+              <span className="vfd glow-a text-amber">{t.bpm}</span> (→{t.target})
             </span>
           </li>
         ))}
@@ -62,7 +79,7 @@ export function ResultsView({
           href={savedUrl}
           target="_blank"
           rel="noreferrer"
-          className="inline-block rounded-full bg-green-500 px-6 py-2 font-semibold text-black hover:bg-green-400"
+          className="hairline inline-block rounded-full px-6 py-2 text-xs uppercase tracking-[.24em] text-cyan hover:border-[rgba(65,230,214,.4)]"
         >
           Open in Spotify ↗
         </a>
@@ -70,7 +87,7 @@ export function ResultsView({
         <button
           onClick={onSave}
           disabled={saving}
-          className="rounded-full bg-green-500 px-6 py-2 font-semibold text-black hover:bg-green-400 disabled:opacity-50"
+          className="btn-amber px-6 py-2.5 text-xs"
         >
           {saving ? "Saving…" : "Save to Spotify"}
         </button>

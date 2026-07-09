@@ -44,20 +44,24 @@ export function SeedSearch({ onPick }: { onPick: (track: SeedTrack) => void }) {
         type="text"
         value={q}
         onChange={(e) => setQ(e.target.value)}
-        placeholder="Search for a seed track…"
-        className="w-full rounded-lg border border-neutral-800 bg-neutral-900 px-4 py-2 outline-none focus:border-neutral-600"
+        placeholder="SEARCH FOR A SEED TRACK…"
+        className="hairline w-full rounded-lg bg-transparent px-4 py-3 text-sm uppercase tracking-[.16em] text-cyan outline-none placeholder:text-dim focus:border-[rgba(65,230,214,.4)]"
       />
-      {searching && <p className="text-xs text-neutral-500">searching…</p>}
+      {searching && (
+        <p className="text-[11px] uppercase tracking-[.22em] text-dim">
+          searching…
+        </p>
+      )}
       {results.length > 0 && (
-        <ul className="divide-y divide-neutral-800 overflow-hidden rounded-lg border border-neutral-800">
+        <ul className="hairline divide-y divide-[rgba(65,230,214,.1)] overflow-hidden rounded-lg">
           {results.map((t) => (
             <li key={t.id}>
               <button
                 onClick={() => onPick(t)}
-                className="flex w-full items-baseline gap-2 px-4 py-2 text-left hover:bg-neutral-800"
+                className="flex w-full items-baseline gap-2 px-4 py-3 text-left hover:bg-[rgba(65,230,214,.05)]"
               >
-                <span className="font-medium">{t.title}</span>
-                <span className="text-sm text-neutral-400">— {t.artist}</span>
+                <span className="text-sm font-medium text-cyanlabel">{t.title}</span>
+                <span className="text-xs text-dim">— {t.artist}</span>
               </button>
             </li>
           ))}
