@@ -1,21 +1,16 @@
 "use client";
 import type { GenerateResult, SeedTrack } from "@/components/SeedStudio";
 import { CurveViz } from "@/components/CurveViz";
+import { Player } from "@/components/Player";
 
 export function ResultsView({
   result,
   seed,
-  onSave,
-  saving,
-  savedUrl,
   onNewRun,
   busy,
 }: {
   result: GenerateResult;
   seed: SeedTrack;
-  onSave: () => void;
-  saving: boolean;
-  savedUrl: string | null;
   onNewRun: () => void;
   busy: boolean;
 }) {
@@ -90,24 +85,7 @@ export function ResultsView({
         ))}
       </ol>
 
-      {savedUrl ? (
-        <a
-          href={savedUrl}
-          target="_blank"
-          rel="noreferrer"
-          className="hairline inline-block rounded-full px-6 py-2 text-xs uppercase tracking-[.24em] text-cyan hover:border-[rgba(65,230,214,.4)]"
-        >
-          Open in Spotify ↗
-        </a>
-      ) : (
-        <button
-          onClick={onSave}
-          disabled={saving}
-          className="btn-amber px-6 py-2.5 text-xs"
-        >
-          {saving ? "Saving…" : "Save to Spotify"}
-        </button>
-      )}
+      <Player uris={result.tracks.map((t) => "spotify:track:" + t.id)} />
     </section>
   );
 }

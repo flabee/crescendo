@@ -160,11 +160,11 @@ describe("SpotifyClient", () => {
   });
 
   describe("retry / error handling", () => {
-    it("throws after 5 consecutive 429s", async () => {
+    it("throws after 3 consecutive 429s", async () => {
       const fetchMock = seqFetch([{ status: 429, headers: { "retry-after": "0" }, body: {} }]);
       const client = new SpotifyClient("tok", fetchMock as never);
       await expect(client.getLikedTracks()).rejects.toThrow();
-      expect(fetchMock).toHaveBeenCalledTimes(5);
+      expect(fetchMock).toHaveBeenCalledTimes(3);
     });
 
     it("throws immediately on a non-retryable 404", async () => {

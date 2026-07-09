@@ -33,12 +33,18 @@ export async function buildSeedPool(
   }
 
   const all: SpotifyTrack[] = [];
-  for (const node of graph) {
+  for (let i = 0; i < graph.length; i++) {
+    const node = graph[i];
     try {
       all.push(...(await deps.artistTracks(node.name)));
     } catch (e) {
       // isolate a failing artist — one artist's failure must not sink the pool
       console.warn("seed-pool: skipping artist", node.name, e);
+    }
+    // Pace the per-artist searches ~250ms apart (except after the last) to stay
+    // under Spotify's burst throttle and avoid 429 spikes during a Generate.
+    if (i < graph.length - 1) {
+      await new Promise((r) => setTimeout(r, 250));
     }
   }
   return { candidates: dedupeTracks(all), familiar, graphSize: graph.length };

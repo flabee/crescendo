@@ -69,8 +69,6 @@ export function SeedStudio() {
   const [progress, setProgress] = useState({ done: 0, total: 0, matched: 0 });
   const [result, setResult] = useState<GenerateResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [savedUrl, setSavedUrl] = useState<string | null>(null);
   // Accumulates BPM (Spotify trackId -> bpm) from every enrich response — the
   // seed-prime AND every candidate chunk — so generate can carry it forward to
   // the server, which is stateless across requests on serverless.
@@ -82,7 +80,6 @@ export function SeedStudio() {
     setSeed(track);
     setSeedBpm(null);
     setResult(null);
-    setSavedUrl(null);
     setError(null);
     setPhase("priming");
     // Fresh seed → start a fresh BPM map.
@@ -113,7 +110,6 @@ export function SeedStudio() {
     if (!seed) return;
     setError(null);
     setResult(null);
-    setSavedUrl(null);
 
     async function runPool(hops: number): Promise<GenerateResult> {
       setPhase("pooling");
@@ -183,27 +179,7 @@ export function SeedStudio() {
   // primed BPM map intact so Generate stays immediately usable.
   function handleNewRun() {
     setResult(null);
-    setSavedUrl(null);
     setError(null);
-  }
-
-  async function handleSave() {
-    if (!seed || !result) return;
-    setSaving(true);
-    setError(null);
-    try {
-      const data = await postJson<{ url: string }>("/api/save", {
-        name: "Crescendo · " + seed.title,
-        trackIds: result.tracks.map((t) => t.id),
-        params: { startBpm, endBpm, targetMinutes, seedTitle: seed.title },
-        fidelity: result.fidelity,
-      });
-      setSavedUrl(data.url);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setSaving(false);
-    }
   }
 
   return (
@@ -236,7 +212,6 @@ export function SeedStudio() {
                 setSeed(null);
                 setSeedBpm(null);
                 setResult(null);
-                setSavedUrl(null);
                 setError(null);
               }}
               disabled={busy}
@@ -300,9 +275,6 @@ export function SeedStudio() {
         <ResultsView
           result={result}
           seed={seed}
-          onSave={handleSave}
-          saving={saving}
-          savedUrl={savedUrl}
           onNewRun={handleNewRun}
           busy={busy}
         />

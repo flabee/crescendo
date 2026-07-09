@@ -25,7 +25,7 @@ export class SpotifyClient {
   constructor(private token: string, private fetchImpl: FetchLike = fetch) {}
 
   private async req<T>(url: string, init?: RequestInit): Promise<T> {
-    const maxAttempts = 5;
+    const maxAttempts = 3;
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       const res = await this.fetchImpl(url, {
         ...init,
@@ -36,10 +36,11 @@ export class SpotifyClient {
       const retryable = res.status === 429 || res.status >= 500;
       if (retryable && attempt < maxAttempts - 1) {
         // Sanitize Retry-After: default to 1s if missing/garbage/negative,
-        // then cap at 10s so a hostile header can't hang the route.
+        // then cap at 4s so a rate-limited call fails fast (never hangs the
+        // 60s Vercel function) — worst case ~8s across the retry budget.
         const raw = Number(res.headers.get("retry-after") ?? "1");
         const secs = Number.isFinite(raw) && raw >= 0 ? raw : 1;
-        const delayMs = Math.min(secs, 10) * 1000;
+        const delayMs = Math.min(secs, 4) * 1000;
         await new Promise((r) => setTimeout(r, delayMs));
         continue;
       }
