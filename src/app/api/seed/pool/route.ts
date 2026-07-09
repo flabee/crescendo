@@ -1,11 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { auth } from "@/lib/auth/config";
-import { tokenFromSession, type SessionLike } from "@/lib/spotify/session";
-import { SpotifyClient } from "@/lib/spotify/client";
 import { buildSeedPool } from "@/lib/pool/seed-pool";
 import { buildGraph } from "@/lib/artists/graph";
-import { familiaritySet } from "@/lib/pool/familiarity";
+import { deezerArtistTracks } from "@/lib/deezer/artist-tracks";
 import { apiError } from "@/lib/api/http";
 
 export const maxDuration = 60;
@@ -17,24 +14,16 @@ const Body = z.object({
 
 export async function POST(req: Request) {
   try {
-    const token = tokenFromSession((await auth()) as SessionLike | null);
     const { seedArtist, hops } = Body.parse(await req.json());
-    const client = new SpotifyClient(token);
+    // Pool sourced entirely from Deezer (keyless): graph, tracks, and BPM.
+    // Zero Spotify search calls — Spotify search is rate-limited to uselessness
+    // on this app. Familiarity ranking is deferred (empty set for now).
     const result = await buildSeedPool(
       { seedArtist, hops },
       {
         buildGraph: (name, h) => buildGraph(name, { hops: h, maxNodes: 4 }),
-        artistTracks: async (name) => {
-          const q = name.replace(/["\\]/g, " ").trim();
-          if (!q) return [];
-          const tracks = await client.searchTracks(q, 20);
-          const n = q.toLowerCase();
-          const onArtist = tracks.filter(
-            (t) => t.artist.toLowerCase().includes(n) || n.includes(t.artist.toLowerCase()),
-          );
-          return onArtist.length ? onArtist : tracks.slice(0, 10);
-        },
-        familiarArtists: async () => familiaritySet(await client.getTopArtists()),
+        artistTracks: (name) => deezerArtistTracks(name, 8),
+        familiarArtists: async () => new Set<string>(),
       },
     );
     return NextResponse.json({
@@ -44,6 +33,7 @@ export async function POST(req: Request) {
         artist: t.artist,
         isrc: t.isrc,
         durationMs: t.durationMs,
+        bpm: t.bpm,
       })),
       familiar: [...result.familiar],
       graphSize: result.graphSize,

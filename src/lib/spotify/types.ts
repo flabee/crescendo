@@ -4,6 +4,7 @@ export interface SpotifyTrack {
   artist: string;
   durationMs: number;
   isrc?: string;
+  bpm?: number;
 }
 
 export interface PlaylistSummary {

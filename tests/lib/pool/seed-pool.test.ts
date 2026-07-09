@@ -3,7 +3,7 @@ import { buildSeedPool } from "@/lib/pool/seed-pool";
 import type { SeedPoolDeps } from "@/lib/pool/seed-pool";
 import type { SpotifyTrack } from "@/lib/spotify/types";
 
-const tk = (id: string, artist: string, isrc = `I_${id}`): SpotifyTrack => ({ id, title: id, artist, durationMs: 60000, isrc });
+const tk = (id: string, artist: string, isrc = `I_${id}`, bpm = 120): SpotifyTrack => ({ id, title: id, artist, durationMs: 60000, isrc, bpm });
 
 describe("buildSeedPool", () => {
   it("gathers tracks for each graph artist, dedupes, and marks familiarity", async () => {
@@ -17,6 +17,8 @@ describe("buildSeedPool", () => {
     expect(out.familiar.has("sima")).toBe(true);
     // graphSize reflects the number of nodes buildGraph returned.
     expect(out.graphSize).toBe(3);
+    // Deezer-sourced bpm passes through the pool untouched.
+    expect(out.candidates.every((c) => c.bpm === 120)).toBe(true);
   });
 
   it("isolates a failing artist — other artists still contribute", async () => {

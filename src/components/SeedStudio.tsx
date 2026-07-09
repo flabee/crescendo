@@ -2,7 +2,6 @@
 import { useRef, useState } from "react";
 import { SeedSearch } from "@/components/SeedSearch";
 import { CurveControls } from "@/components/CurveControls";
-import { EnrichProgress } from "@/components/EnrichProgress";
 import { ResultsView } from "@/components/ResultsView";
 
 export interface SeedTrack {
@@ -19,6 +18,7 @@ interface Candidate {
   artist: string;
   isrc?: string;
   durationMs: number;
+  bpm?: number;
 }
 
 export interface GenerateResult {
@@ -32,7 +32,7 @@ export interface GenerateResult {
   seedOutOfRange: boolean;
 }
 
-type Phase = "idle" | "priming" | "pooling" | "enriching" | "generating";
+type Phase = "idle" | "priming" | "pooling" | "generating";
 
 async function postJson<T>(url: string, body: unknown): Promise<T> {
   const res = await fetch(url, {
@@ -53,12 +53,6 @@ async function postJson<T>(url: string, body: unknown): Promise<T> {
   return (await res.json()) as T;
 }
 
-function chunk<T>(arr: T[], size: number): T[][] {
-  const out: T[][] = [];
-  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
-  return out;
-}
-
 export function SeedStudio() {
   const [seed, setSeed] = useState<SeedTrack | null>(null);
   const [seedBpm, setSeedBpm] = useState<number | null>(null);
@@ -66,15 +60,14 @@ export function SeedStudio() {
   const [endBpm, setEndBpm] = useState(128);
   const [targetMinutes, setTargetMinutes] = useState(45);
   const [phase, setPhase] = useState<Phase>("idle");
-  const [progress, setProgress] = useState({ done: 0, total: 0, matched: 0 });
   const [result, setResult] = useState<GenerateResult | null>(null);
   // Number of artist nodes the pool graph produced (diagnostic surfaced in the
   // results panel so an empty pool's cause is visible without DevTools).
   const [graphSize, setGraphSize] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // Accumulates BPM (Spotify trackId -> bpm) from every enrich response — the
-  // seed-prime AND every candidate chunk — so generate can carry it forward to
-  // the server, which is stateless across requests on serverless.
+  // Accumulates BPM (trackId -> bpm) from the seed-prime enrich AND the pool's
+  // Deezer-sourced candidates, so generate can carry it forward to the server,
+  // which is stateless across requests on serverless.
   const bpmMapRef = useRef<Record<string, number>>({});
 
   const busy = phase !== "idle";
@@ -125,29 +118,17 @@ export function SeedStudio() {
       // when the pool comes back empty (0 artists = no per-artist searches ran).
       setGraphSize(pool.graphSize ?? null);
 
-      // Cap the pool client-side: generate accepts at most 500 candidates, and
-      // this also bounds the enrich work. A widened graph can exceed 500.
+      // Cap the pool client-side: generate accepts at most 500 candidates.
+      // A widened graph can exceed 500.
       const candidates = pool.candidates.slice(0, 500);
 
-      setPhase("enriching");
-      const chunks = chunk(candidates, 50);
-      const total = candidates.length;
-      let done = 0;
-      let matched = 0;
-      setProgress({ done: 0, total, matched: 0 });
-      for (const c of chunks) {
-        const data = await postJson<{
-          matched: { trackId: string; bpm: number }[];
-          unmatched: string[];
-        }>("/api/enrich", {
-          tracks: c.map((x) => ({ id: x.id, title: x.title, artist: x.artist, isrc: x.isrc })),
-        });
-        // Carry each matched BPM forward so generate never depends on shared
-        // server state.
-        for (const m of data.matched) bpmMapRef.current[m.trackId] = m.bpm;
-        done += c.length;
-        matched += data.matched.length;
-        setProgress({ done, total, matched });
+      // BPM now comes straight from the pool's Deezer-sourced candidates — no
+      // chunked /api/enrich round-trips. Carry every known BPM (>0) forward so
+      // generate never depends on shared (stateless) server state.
+      for (const c of candidates) {
+        if (typeof c.bpm === "number" && c.bpm > 0) {
+          bpmMapRef.current[c.id] = c.bpm;
+        }
       }
 
       setPhase("generating");
@@ -255,16 +236,10 @@ export function SeedStudio() {
         </span>
         {phase === "pooling"
           ? "Building pool…"
-          : phase === "enriching"
-            ? "Enriching…"
-            : phase === "generating"
-              ? "Generating…"
-              : "Generate"}
+          : phase === "generating"
+            ? "Generating…"
+            : "Generate"}
       </button>
-
-      {phase === "enriching" && (
-        <EnrichProgress done={progress.done} total={progress.total} matched={progress.matched} />
-      )}
 
       {error && (
         <div
