@@ -9,6 +9,12 @@ const SCOPES = [
   "user-top-read",
   "playlist-read-private",
   "playlist-modify-private",
+  "playlist-modify-public",
+  "streaming",
+  "user-read-email",
+  "user-read-private",
+  "user-read-playback-state",
+  "user-modify-playback-state",
 ].join(" ");
 
 export const authConfig: NextAuthConfig = {

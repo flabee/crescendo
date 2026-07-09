@@ -24,8 +24,7 @@ export async function POST(req: Request) {
       { seedArtist, hops },
       {
         buildGraph: (name, h) => buildGraph(name, { hops: h }),
-        searchArtists: (n) => client.searchArtists(n),
-        artistTopTracks: (id) => client.getArtistTopTracks(id),
+        artistTracks: (name) => client.searchTracks(`artist:"${name.replace(/["\\]/g, "")}"`, 15),
         familiarArtists: async () => familiaritySet(await client.getTopArtists()),
       },
     );

@@ -6,57 +6,52 @@ import type { SpotifyTrack } from "@/lib/spotify/types";
 const tk = (id: string, artist: string, isrc = `I_${id}`): SpotifyTrack => ({ id, title: id, artist, durationMs: 60000, isrc });
 
 describe("buildSeedPool", () => {
-  it("gathers Spotify top-tracks for each graph artist, dedupes, and marks familiarity", async () => {
+  it("gathers tracks for each graph artist, dedupes, and marks familiarity", async () => {
     const deps: SeedPoolDeps = {
       buildGraph: async () => [{ name: "SeedArt" }, { name: "SimA" }, { name: "SimB" }],
-      searchArtists: async (n: string) => [{ id: `sp_${n}`, name: n }],
-      artistTopTracks: async (id: string) => [tk(`${id}_1`, id.replace("sp_", ""))],
+      artistTracks: async (n: string) => [tk(`${n}_1`, n)],
       familiarArtists: async () => new Set(["sima"]), // lowercased
     };
     const out = await buildSeedPool({ seedArtist: "SeedArt", hops: 1 }, deps);
-    expect(out.candidates.map((c) => c.id).sort()).toEqual(["sp_SeedArt_1", "sp_SimA_1", "sp_SimB_1"]);
+    expect(out.candidates.map((c) => c.id).sort()).toEqual(["SeedArt_1", "SimA_1", "SimB_1"]);
     expect(out.familiar.has("sima")).toBe(true);
   });
 
-  it("prefers an exact-name Spotify artist match over the first hit", async () => {
+  it("isolates a failing artist — other artists still contribute", async () => {
     const deps: SeedPoolDeps = {
-      buildGraph: async () => [{ name: "Real Name" }],
-      searchArtists: async () => [
-        { id: "wrong", name: "Real Name Tribute" },
-        { id: "right", name: "Real Name" },
-      ],
-      artistTopTracks: async (id: string) => [tk(`${id}_1`, "Real Name")],
-      familiarArtists: async () => new Set<string>(),
-    };
-    const out = await buildSeedPool({ seedArtist: "Real Name", hops: 1 }, deps);
-    expect(out.candidates.map((c) => c.id)).toEqual(["right_1"]);
-  });
-
-  it("skips graph artists that resolve to no Spotify artist, and isolates a failing artist", async () => {
-    const deps: SeedPoolDeps = {
-      buildGraph: async () => [{ name: "Has" }, { name: "None" }, { name: "Boom" }],
-      searchArtists: async (n: string) => {
-        if (n === "None") return [];
+      buildGraph: async () => [{ name: "Has" }, { name: "Boom" }, { name: "Also" }],
+      artistTracks: async (n: string) => {
         if (n === "Boom") throw new Error("spotify 500");
-        return [{ id: `sp_${n}`, name: n }];
+        return [tk(`${n}_1`, n)];
       },
-      artistTopTracks: async (id: string) => [tk(`${id}_1`, "Has")],
       familiarArtists: async () => new Set<string>(),
     };
     const out = await buildSeedPool({ seedArtist: "Has", hops: 1 }, deps);
-    expect(out.candidates.map((c) => c.id)).toEqual(["sp_Has_1"]);
+    expect(out.candidates.map((c) => c.id).sort()).toEqual(["Also_1", "Has_1"]);
   });
 
   it("dedupes the union across different graph artists sharing an ISRC", async () => {
     const deps: SeedPoolDeps = {
       buildGraph: async () => [{ name: "ArtistOne" }, { name: "ArtistTwo" }],
-      searchArtists: async (n: string) => [{ id: `sp_${n}`, name: n }],
-      // Two different artists whose top-tracks share the same ISRC.
-      artistTopTracks: async (id: string) => [tk(`${id}_1`, id, "SHARED_ISRC")],
+      // Two different artists whose tracks share the same ISRC.
+      artistTracks: async (n: string) => [tk(`${n}_1`, n, "SHARED_ISRC")],
       familiarArtists: async () => new Set<string>(),
     };
     const out = await buildSeedPool({ seedArtist: "ArtistOne", hops: 1 }, deps);
     expect(out.candidates).toHaveLength(1);
-    expect(out.candidates[0].id).toBe("sp_ArtistOne_1");
+    expect(out.candidates[0].id).toBe("ArtistOne_1");
+  });
+
+  it("defaults to an empty familiarity set when familiarArtists throws", async () => {
+    const deps: SeedPoolDeps = {
+      buildGraph: async () => [{ name: "SeedArt" }],
+      artistTracks: async (n: string) => [tk(`${n}_1`, n)],
+      familiarArtists: async () => {
+        throw new Error("spotify 403: /me/top/artists");
+      },
+    };
+    const out = await buildSeedPool({ seedArtist: "SeedArt", hops: 1 }, deps);
+    expect(out.candidates.map((c) => c.id)).toEqual(["SeedArt_1"]);
+    expect(out.familiar.size).toBe(0);
   });
 });

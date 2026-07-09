@@ -21,7 +21,7 @@ export async function lookupGetSongBpm(ref: TrackRef): Promise<BpmLookupResult |
   const hit = json.search?.find((h) => h.tempo && Number(h.tempo) > 0);
   if (!hit || !hit.tempo) return null;
   return {
-    bpm: Number(hit.tempo),
+    bpm: Math.round(Number(hit.tempo)),
     source: "getsongbpm",
     matchedTitle: hit.song_title ?? ref.title,
     matchedArtist: hit.artist?.name ?? ref.artist,

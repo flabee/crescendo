@@ -10,6 +10,7 @@ function seqFetch(responses: Array<{ status?: number; headers?: Record<string, s
       status: r.status ?? 200,
       headers: { get: (k: string) => (r.headers ?? {})[k.toLowerCase()] ?? null },
       json: async () => r.body,
+      text: async () => (typeof r.body === "string" ? r.body : JSON.stringify(r.body)),
     };
   });
 }

@@ -62,6 +62,15 @@ describe("lookupDeezer", () => {
     );
   });
 
+  it("rounds a fractional bpm to the nearest integer", async () => {
+    mockFetch((url) => {
+      if (url.includes("/track/isrc:USRC")) return { bpm: 148.19, title: "Song", artist: { name: "Artist" } };
+      throw new Error("should not reach search");
+    });
+    const res = await lookupDeezer({ id: "s1", title: "Song", artist: "Artist", isrc: "USRC" });
+    expect(res).toMatchObject({ bpm: 148, source: "deezer-isrc" });
+  });
+
   it("strips embedded double-quotes from title/artist in the search query", async () => {
     let seen = "";
     mockFetch((url) => {

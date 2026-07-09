@@ -37,7 +37,7 @@ export async function lookupDeezer(ref: TrackRef): Promise<BpmLookupResult | nul
     );
     if (t && typeof t.bpm === "number" && t.bpm > 0) {
       return {
-        bpm: t.bpm,
+        bpm: Math.round(t.bpm),
         source: "deezer-isrc",
         matchedTitle: t.title ?? ref.title,
         matchedArtist: t.artist?.name ?? ref.artist,
@@ -71,7 +71,7 @@ export async function lookupDeezer(ref: TrackRef): Promise<BpmLookupResult | nul
 
   if (best && typeof best.hit.bpm === "number") {
     return {
-      bpm: best.hit.bpm,
+      bpm: Math.round(best.hit.bpm),
       source: "deezer-search",
       matchedTitle: best.hit.title ?? ref.title,
       matchedArtist: best.hit.artist?.name ?? ref.artist,

@@ -43,7 +43,10 @@ export class SpotifyClient {
         await new Promise((r) => setTimeout(r, delayMs));
         continue;
       }
-      if (!res.ok) throw new Error(`Spotify ${res.status}: ${url}`);
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        throw new Error(`Spotify ${res.status}: ${url}${body ? " — " + body.slice(0, 300) : ""}`);
+      }
       return (await res.json()) as T;
     }
     throw new Error(`Spotify rate-limited after retries: ${url}`);
