@@ -129,6 +129,19 @@ export class SpotifyClient {
       .then((r) => r.tracks.filter((t) => t?.id).map(normalize));
   }
 
+  /** Batch-resolve track ids to metadata (title/artist/isrc) via GET /tracks. */
+  async getTracksByIds(ids: string[]): Promise<SpotifyTrack[]> {
+    const out: SpotifyTrack[] = [];
+    for (let i = 0; i < ids.length; i += 50) {
+      const batch = ids.slice(i, i + 50);
+      const r = await this.req<{ tracks: (RawTrack | null)[] }>(
+        `${API}/tracks?ids=${batch.map(encodeURIComponent).join(",")}`,
+      );
+      for (const t of r.tracks) if (t?.id) out.push(normalize(t));
+    }
+    return out;
+  }
+
   async getTopArtists(range: "short_term" | "medium_term" | "long_term" = "medium_term"): Promise<ArtistRef[]> {
     const out: ArtistRef[] = [];
     let url: string | null = `${API}/me/top/artists?limit=50&time_range=${range}`;
