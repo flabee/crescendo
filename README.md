@@ -59,6 +59,24 @@ Mirror these into `.env.local` (local) or your Vercel project settings (producti
 | `LASTFM_API_KEY` | Optional | Widens the similar-artist graph ([last.fm/api](https://www.last.fm/api)). Without it, Deezer related-artists still works with zero config. |
 | `KV_REST_API_URL` | Optional | Vercel KV / Upstash REST URL. With `KV_REST_API_TOKEN`, enables a persistent BPM cache + generation history. |
 | `KV_REST_API_TOKEN` | Optional | Vercel KV / Upstash REST token. Pairs with `KV_REST_API_URL`. Without both, the app runs in-memory and re-fetches uncached BPM each session. |
+| `SUPABASE_URL` | Required for `/api/similarity` | Supabase project URL. Needs the `pgvector` extension enabled (see migration below). |
+| `SUPABASE_SERVICE_ROLE_KEY` | Required for `/api/similarity` | Supabase service role key. Server-only — the embeddings cache bypasses RLS, so never expose this key to the browser. |
+| `EMBEDDING_API_TOKEN` | Required for `/api/similarity` | [Replicate](https://replicate.com/account/api-tokens) API token, used to run the audio-embedding model. |
+| `EMBEDDING_MODEL_VERSION` | Required for `/api/similarity` | Exact Replicate model **version hash** for the pinned LAION CLAP music checkpoint — never "latest". Changing it changes the cache key (`model` column), so old and new vectors are never compared against each other. |
+
+## Audio-embedding similarity (`/api/similarity`)
+
+Step 1 of a pivot: **similarity selects** candidate tracks; the existing BPM curve still **orders** them. This is a standalone API route — it adds no UI and doesn't touch auth, BPM lookup, or playlist write-back.
+
+1. **Setup.** Enable the `pgvector` extension on your Supabase project and run the migration in `supabase/migrations/` (via the Supabase SQL editor, or `supabase db push` if you use the CLI). It creates `track_embeddings` (`track_id`, `isrc`, `preview_url`, `model`, `embedding vector(512)`, unique on `(track_id, model)`) plus a `match_track_embeddings` SQL function that ranks by pgvector's cosine operator (`<=>`).
+2. **Request.** `POST /api/similarity` with `{ seedTrackId, candidateTrackIds: string[] }` (Spotify track ids). Requires the same Spotify session as the rest of the app.
+3. **Resolution.** Each track id is resolved to Spotify metadata (title/artist/ISRC), then to a Deezer 30s preview URL via the existing ISRC-first lookup (falling back to a title+artist search, same matching strategy as the BPM enrichment). A track with no Spotify match or no Deezer preview is **skipped with a reason** in the response — it never fails the whole request. The seed itself is the exception: if it can't be resolved or embedded, the request fails, since there's nothing to rank against.
+4. **Embedding (cache-first).** For each resolvable track, `track_embeddings` is checked for an existing row under the pinned `model`. Only misses are sent to the embedding provider (Replicate, running the pinned LAION CLAP checkpoint) and written back — nothing already cached is re-embedded. Calls are paced to stay under Deezer's and Replicate's rate limits.
+5. **Ranking.** Candidates are ranked by cosine similarity to the seed via the `match_track_embeddings` SQL function (pgvector's `<=>` operator, index-accelerated). The response is `{ seedTrackId, model, ranked: [{ trackId, score }], skipped: [{ trackId, reason }] }`, `ranked` sorted highest-similarity first.
+
+The embedding provider is an interface (`src/lib/embeddings/types.ts`) with one implementation today (`ReplicateClapProvider`). Swapping to MuQ-MuLan or a self-hosted embedding endpoint later means adding a class that implements it and pointing the factory in `src/lib/embeddings/index.ts` at it — nothing else in the similarity pipeline is Replicate-specific.
+
+> A cold cache with many uncached candidates can be slow — each miss is one Replicate prediction, paced sequentially. For large candidate pools, warm the cache incrementally (smaller batches) rather than one huge first request.
 
 ## Local development
 
