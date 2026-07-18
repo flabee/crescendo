@@ -6,7 +6,7 @@ import type { EmbeddingProvider } from "@/lib/embeddings/types";
 import { getSupabaseAdmin } from "@/lib/supabase/client";
 import { getCachedEmbeddings, saveEmbedding, rankByCosine } from "./embeddings-store";
 
-// Keeps us under Deezer's ~50/5s keyless limit and Replicate's per-account
+// Keeps us under Deezer's ~50/5s keyless limit and the embedding endpoint's
 // rate limit without adding a full concurrency pool for a step-1 feature.
 const DEEZER_PACING_MS = 120;
 const EMBED_PACING_MS = 150;

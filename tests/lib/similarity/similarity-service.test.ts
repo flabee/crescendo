@@ -168,7 +168,7 @@ describe("resolveSimilarity", () => {
   it("ranks a ~20-candidate pool end-to-end, mixing hits, cache hits, and misses", async () => {
     // Simulates the shape of a real /api/similarity call: one seed plus ~20
     // candidates, some already cached, some needing embedding, a couple
-    // unresolvable. Live network calls (real Spotify/Deezer/Replicate/Supabase)
+    // unresolvable. Live network calls (real Spotify/Deezer/HF endpoint/Supabase)
     // aren't available in this sandbox, so this exercises the same code path
     // (resolveSimilarity) with mocked deps instead.
     const N = 20;
